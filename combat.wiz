@@ -1,0 +1,390 @@
+/*
+; Combat for Atari by Larry Wagner
+; Ported to WIZ by MikeDX - March 2023
+;
+; Original disassembly by Harry Dodgson
+; Commented further by Nick Bensema (1997)
+; Major overhaul by Roger Williams (2002) 
+;
+; My intent in overhauling this classic disassembly is to finish it
+; so that the purpose of every instruction, memory location, and
+; table is made completely clear.
+;
+; For some reason the NBCOMBAT file ORG statements all point to
+; the region $1000-$1FFF; this would play in a VCS but the cartridge
+; .BIN I have is mapped from $F000-$FFFF.  This file compiles with
+; DASM to an image which differs from this ROM only in the few
+; unwritten bytes between the end of data and the startup vectors.
+; DASM sets these to zero, typical of unwritten RAM, but in the cart
+; they are $FF, typical of unprogrammed PROM.
+;
+; Thanks to Brian Prescott for pointing me to Joe DeCuir's
+; presentation notes, which revealed Atari's original names
+; for the main loop toplevel routines and offered some guidance
+; on their separation of function.
+;
+; I have removed some of the breathless intro-to-VCS and historical
+; comments.  This version assumes a basic familiarity with VCS
+; programming, and is meant as a basis for hacking the COMBAT game
+; itself.  There are plenty of resources outside of this file if
+; you don't know how the VCS works.
+;
+; For reference, as this is rather important when reading the,
+; code, here is the game variation matrix (it is not trivially
+; obvious how this corresponds to GAMVAR):
+;
+;                Game No.                Open Field
+;                |  Straight Missiles    |  Easy Maze
+;                |  |  Guided Missiles   |  |  Complex Maze
+;                |  |  |  Machine Guns   |  |  |  Clouds
+;                |  |  |  |  Direct Hit  |  |  |  |
+;                |  |  |  |  |  Billiard |  |  |  |
+;                |  |  |  |  |  |   Hit  |  |  |  |
+;                |  |  |  |  |  |        |  |  |  |
+;                |  |  |  |  |  |        |  |  |  |
+;
+;TANK            1  -  X  -  -  -        X  -  -  -
+;                2  -  X  -  -  -        -  X  -  -
+;                3  X  -  -  -  -        -  X  -  -
+;                4  -  X  -  -  -        -  -  X  -
+;                5  X  -  -  -  -        -  -  X  -
+;--------------------------------------------------
+;TANK-PONG       6  -  -  -  X  X        -  X  -  -
+;                7  -  -  -  X  X        -  -  X  -
+;                8  -  -  -  -  X        X  -  -  -
+;                9  -  -  -  -  X        -  X  -  -
+;--------------------------------------------------
+;INVISIBLE TANK 10  -  X  -  -  -        X  -  -  -
+;               11  -  X  -  -  -        -  X  -  -
+;--------------------------------------------------
+;INVISIBLE      12  -  -  -  X  X        -  X  -  -
+;TANK-PONG      13  -  -  -  -  X        X  -  -  -
+;               14  -  -  -  -  X        -  X  -  -
+;--------------------------------------------------
+;BI-PLANE       15  -  X  -  -  -        -  -  -  X
+;               16  X  -  -  -  -        -  -  -  X
+;               17  -  -  X  -  -        -  -  -  X
+;               18  -  -  X  -  -        X  -  -  -
+;     2 vs. 2   19  -  X  -  -  -        X  -  -  -
+;     1 vs. 3   20  X  -  -  -  -        X  -  -  -
+;--------------------------------------------------
+;JET            21  -  X  -  -  -        -  -  -  X
+;               22  X  -  -  -  -        -  -  -  X
+;               23  -  X  -  -  -        X  -  -  -
+;               24  X  -  -  -  -        X  -  -  -
+;     2 vs. 2   25  -  X  -  -  -        -  -  -  X
+;     1 vs. 3   26  -  X  -  -  -        X  -  -  -
+;     2 vs. 2   27  X  -  -  -  -        X  -  -  -
+*/
+
+import "vcs";
+import "banks";
+
+import "vars";
+
+import "gfx";
+
+
+in rom @ ROMADDR {
+  START:
+  // Disable interrupts
+  nointerrupt = true;  
+  // Disable decimal mode
+  decimal = false;       
+  
+  // set stack pointer to 0xFF (set this to a variable)
+  s = x = 0xFF;
+  
+  // Clear memory from 0x00 to 0xAd (0x5d is an unsigned value for 0xA2)
+  x = 0x5d;
+  Clearmem();
+  
+  a = 0x10;
+  SWBCNT = a;
+  GameOn = a;
+  ClrGam(); // clear game RAM $82-$A2
+
+  while true {
+    VCNTRL(); // Generate a VSYNC and begin VBLANK
+
+    // VBLANK logic:
+    GSGRCK(); // Parse console switches
+    LDSTEL(); // Load Stella Registers
+    CHKSW();  // Check Joystick Switches
+    COLIS();  // Check Collision Registers
+    STPMPL(); // Setup Player, Missile Motion
+    ROT();    // Rotate Sprites
+    SCROT();  // Calculate Score Offsets
+
+    VOUT();   // do the Kernal (trashes the stack ptr,
+              // but then restores it because it IS
+              // used when we reiterate this loop)
+  }
+  
+  /*
+  ;
+  ; ------------------------------------------------------------
+  ;
+  ; Vertical CoNTRoL
+  ;
+  ; Vertical sync, basic frame-start housekeeping
+  ;
+*/
+  func VCNTRL() {
+    CLOCK++;
+    HMCLR = a;
+    a = 2;
+    WSYNC = a;
+    VBLANK = a;
+    WSYNC = a;
+    WSYNC = a;
+    VSYNC = a;
+    WSYNC = a;
+    WSYNC = a;
+    a = 0;
+    WSYNC = a;
+    VSYNC = a;
+    a = 0x43;
+    TIM64T = a;
+  }
+  /*
+  ;
+  ; ------------------------------------------------------------
+  ;
+  ; Video OUT -- THE KERNAL
+  ;
+  ; We start with the score, then we render the playfield, players,
+  ; and missiles simultaneously. All in all, an average day for a VCS.
+  ;
+*/
+  func VOUT() {
+    a = 0x20;
+    ScanLine = a; // We're assuming scanline $20.
+    WSYNC = a;
+    HMOVE = a;    // Move sprites horizontally.
+    do {
+      a = INTIM;
+    } while !zero;
+    
+    WSYNC = a;   
+    CXCLR = a;   	// Clear collision latches
+    VBLANK = a;  	// End vertical blank
+    TMPSTK = x = s;  	// Save stack pointer
+    CTRLPF = a = 0x02;  // Double, instead of reflect.
+    x = KLskip;
+    // Skip a few scanlines...
+    do {
+      WSYNC = a;
+      x--;
+    } while !zero;
+    a = KLskip;
+    cmp(a,0x0e);  // "No Score" value of KLskip
+    goto Vmain if zero;
+  /*
+  ;
+  ; KLskip is set as such so that when the score is
+  ; to be displayed, it waits for just the right time
+  ; to start drawing the score, but if the score is
+  ; not to be displayed, as when the score flashes
+  ; signifying "time's almost up", it waits for just
+  ; the right time to start drawing the rest of the
+  ; screen.
+  ;
+  ; Draw the score:
+  ;
+  */
+    x = 0x05;	// Score is five bytes high.
+    a = 0x00;	// Clear number graphics.
+    NUMG0 = a;  // They won't be calculated yet,
+    NUMG1 = a;  // but first time through the loop
+                // the game will try to draw with
+       		// them anyway.
+
+    do { // VSCOR;
+      WSYNC = a; 	// Start on new scanline
+      a = NUMG0; 	// Take last scanline's left score,
+      PF1 = a;	// and recycle it,
+    
+    /*
+    ;
+    ; Here, we begin drawing the next scanline's
+    ; left score, as the electron beam moves towards
+    ; the right score's position in this scanline.
+    ;
+    */
+    
+      y = SCROFF[2];
+      a = NUMBERS[y];	// Get left digit.
+      a = a & 0xf0;
+      NUMG0 = a;
+      y = SCROFF[0];
+      a = NUMBERS[y];	// Get right digit.
+      a = a & 0x0f;
+      a = a | NUMG0;
+      NUMG0 = a;	// Left score is ready to ship.
+      a = NUMG1;	// Take last scanline's right score,
+      PF1 = a;		// and recycle it.
+      y = SCROFF[3];
+      a = NUMBERS[y];	// Left digit...
+      a = a & 0xf0;
+      NUMG1 = a;
+      y = SCROFF[1];
+      a = NUMBERS[y];	// right digit...
+      a = a & SHOWSCR;
+      /*
+      ;
+      ; Now, we use our fresh, new score graphics in this next scanline.
+      ;
+      */
+    
+      WSYNC = a;	// *COUNT*
+      a = a | NUMG1;	// Finish calculating     (0) +3
+      NUMG1 = a;	// right score.           (3) +3
+      a = NUMG0;	// 			  (6) +3
+      PF1 = a;		//			  *9* +3
+      x--;
+      goto Vmain if negative;
+    
+      /*
+      ;
+      ; We use this time to check whether we're at the end of our loop.
+      ;
+      */
+      x--;		//			  (12)+2
+      goto Vmain if negative;	// (14)+2 No Branch
+
+      /*
+      ;
+      ; If so, we're out of here.  Don't worry, the score will be
+      ; cleared immediately, so nobody will know that we've gone
+      ; past five bytes and are displaying garbage.
+      ;  
+      */
+      SCROFF[0]++;	// ; (16)+5
+      SCROFF[2]++;	// Get ready to draw the next
+      SCROFF[1]++;	// line of the byte.
+      SCROFF[3]++;
+      a = NUMG1;
+      PF1 = a;		// Right score is in place.
+    } while true;	// Go to next scanline,
+    /*
+    ; Main Kernal Display loop for the game itself
+    ;*/
+    
+Vmain:
+    a = 0;		// Inner Display Loop
+    PF1 = a;		// Clear the score.
+    WSYNC = a;
+    a = 0x05;
+    CTRLPF = a;		// Reflecting playfield.
+    a = Color0;
+    COLUP0 = a;		// How often must THIS be done?
+    a = Color1;
+    COLUP1 = a;
+VField:
+    x = 0x1e;		// Very Sneaky -
+    s = x;		// Set stack to missile registers
+    carry = true;
+    
+    /*
+    ;  
+    ; This yields which line of player 0 to draw.
+    ;
+    */
+    
+    a = TankY0;
+    a = a -#ScanLine;		// A=TankY0-ScanLine
+    a = a & 0xfe;		// Force an even number
+    x = a;			// Only sixteen bytes of 
+    a = a & 0xf0;		// sprite memory, so...
+
+    if !zero {
+      a = 0x00;			// blank the tank.
+    } 
+    
+    if !zero {
+      // doTank
+      a = HIRES[x];		// Else, load the appropriate byte.
+    }
+
+    WSYNC = a;			// ----END OF ONE LINE----
+    GRP0 = a;			// Just for player 0.
+  }
+
+  
+  func GSGRCK() {
+
+  }
+  
+  func LDSTEL() {
+    
+  }
+  
+  func CHKSW() {
+    
+  }
+
+  func COLIS() {
+    
+  }
+  
+  func STPMPL() {
+    
+  }
+  
+  func ROT() {
+
+  }
+  
+  func SCROT() {
+    
+  }
+  
+  
+  func MLOOP() {
+    
+  }
+//in rom @ 0xf19a {
+  func ClrGam() {
+    x = 0xdf;
+    Clearmem();
+    a = 0xff;
+    SelDbnce = a;
+    y = BINvar;
+//    a = 
+  }
+}
+
+in rom @ 0xf5b3 {
+  /*
+  ;
+  ; ------------------------------------------------------------
+  ;
+  ; Zero out zero-page memory starting with ($A3+X) MOD $100,
+  ; through $A2 wrapping around at $100.
+  ;
+  ; Calling with:
+  ; X=$5D will clear $00-$A2
+  ; X=$DD will clear $80-$A2
+  ; X=$DF will clear $82-$A2
+  ; X=$E6 will clear $89-$A2
+  ;
+  ; Returns with zero bit set.
+  ;
+  */
+  func Clearmem() {
+    // clear memory from x to ram_A2;
+    a = 0;
+    do {
+      x++;
+      ram_A2[x] = a;
+    } while !zero;
+    
+  }  
+}
+
+// setup vectors
+in rom @ 0xFFFA {
+  const : [u16] = [(0x0 as u16), (&START as u16), 0x0];
+}
+
