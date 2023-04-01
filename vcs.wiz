@@ -259,6 +259,8 @@ extern var CXP0FBm30 @ &vcs.collision.player1_vs_playfieldm30 : u8;
 extern var CXPPMMm30 @ &vcs.collision.pvp_mvm_m30 : u8;
 
 extern var ENABL @ &vcs.pattern.ball : u8;
+extern var ENAM0 @ &vcs.pattern.missile1 : u8;
+extern var ENAM1 @ &vcs.pattern.missile2 : u8;
 
 extern var GRP0 @ &vcs.pattern.player1 : u8;
 extern var GRP1 @ &vcs.pattern.player2 : u8;

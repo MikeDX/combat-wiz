@@ -97,7 +97,7 @@ in rom @ ROMADDR {
   
   // Clear memory from 0x00 to 0xAd (0x5d is an unsigned value for 0xA2)
   x = 0x5d;
-  Clearmem();
+  ClearMem();
   
   a = 0x10;
   SWBCNT = a;
@@ -136,6 +136,7 @@ in rom @ ROMADDR {
     a = 2;
     WSYNC = a;
     VBLANK = a;
+    WSYNC = a;
     WSYNC = a;
     WSYNC = a;
     VSYNC = a;
@@ -241,18 +242,14 @@ in rom @ ROMADDR {
       a = a | NUMG1;	// Finish calculating     (0) +3
       NUMG1 = a;	// right score.           (3) +3
       a = NUMG0;	// 			  (6) +3
-      PF1 = a;		//			  *9* +3
-      x--;
-      goto Vmain if negative;
-    
+      PF1 = a;		//			  *9* +3    
       /*
       ;
       ; We use this time to check whether we're at the end of our loop.
       ;
       */
       x--;		//			  (12)+2
-      goto Vmain if negative;	// (14)+2 No Branch
-
+      break if negative;	// (14)+2 No Branch
       /*
       ;
       ; If so, we're out of here.  Don't worry, the score will be
@@ -295,25 +292,311 @@ VField:
     a = TankY0;
     a = a -#ScanLine;		// A=TankY0-ScanLine
     a = a & 0xfe;		// Force an even number
+    
     x = a;			// Only sixteen bytes of 
     a = a & 0xf0;		// sprite memory, so...
 
-    if !zero {
-      a = 0x00;			// blank the tank.
-    } 
-    
-    if !zero {
+//    if !zero {
+    goto VdoTank if zero;
+    a = 0x00;			// blank the tank.
+    //} 
+  	
+    goto VnoTank if zero;
+//    if !zero {
       // doTank
+VdoTank:
       a = HIRES[x];		// Else, load the appropriate byte.
-    }
+//    }
 
+VnoTank:
     WSYNC = a;			// ----END OF ONE LINE----
     GRP0 = a;			// Just for player 0.
+    /*
+    ;
+    ; The infamous Combat Stack Trick:
+    ;
+    ; Keep in mind that at this point, the stack pointer
+    ; is set to the missile registers, and the "zero-result"
+    ; bit of the P register is the same at the bit ENAM0/1
+    ; looks at.
+    ;*/
+    
+    a = MissileY1;
+    a = a ^ ScanLine;
+    a = a & 0xFE;
+    push(p); 		// This turns the missle 1 on/off
+
+    a = MissileY0;
+    a = a ^ ScanLine;
+    a = a & 0xFE;
+    push(p);		// This turns the missle 0 on/off
+    /*
+    ;
+    ; We've got the missile taken care of.
+    ; Now let's see which line of the playfield to draw.
+    ;*/
+    
+    a = ScanLine;
+    if negative {
+      a = a ^ 0xF8;
+    }
+    cmp(a,0x20);
+    
+    if (carry) { 	// Branch if at bottom.
+      a = a >>> 3;	// Divide by eight,
+      y = a;		// and stow it in the Y-register.
+    }
+    /*
+    ;
+    ; By now, the electron beam is already at the next
+    ; scanline, so we don't have to do a STA WSYNC.
+    ;
+    ; This yields which line of Tank 1 to draw.
+    ;
+    */
+    a = TankY1;
+    carry = true;
+    a = a -#ScanLine;	// A=TankY1 - ScanLine
+    ScanLine++;		// Increment the loop.
+    nop();
+    a = a | 0x01;	// Add bit 0, force odd number.
+    x = a;
+    
+    a = a & 0xF0;	// There are only sixteen bytes of
+
+    goto VdoT1 if zero;	// sprite memory, so...
+//    if (!zero) {
+    a = 0x00;		// If tank is not ready, blank it.
+    
+    
+//    if (!zero) { 
+    goto VnoT1 if zero;
+/*    if (!zero) {
+      a = 0x00;
+      if (!zero) {
+        a = HIRES[x];
+      }
+      bit(PF_PONG);
+
+    }
+ */  
+    
+VdoT1:
+    a = HIRES[x];	// Else, draw the tank
+VnoT1:
+    bit(PF_PONG);
+    GRP1 = a;
+    goto VnoPF if negative;	// If PF_PONG bit 7 set, don't write PF
+    a = (LORES as *u8)[y];	// (this means game variation has blank
+    PF0 = a;			// background)
+    a = (LORES2 as *u8)[y];
+    PF1 = a;
+    a = (LORES4 as *u8)[y];
+    PF2 = a;
+VnoPF:
+    ScanLine++;			// One more up in the loop.
+    a = ScanLine;
+    a = a ^ 0xEC;
+    goto VField if !zero;
+    x = TMPSTK;			// Restore stack pointer, which is
+    s = x;			// used for calls in main game loop
+    ENAM0 = a;		// Clear a bunch of registers.
+    ENAM1 = a;
+    GRP0 = a;
+    GRP1 = a;
+    GRP0 = a;			// In case GRP0 isn't COMPLETELY zeroed.
+    PF0 = a;
+    PF1 = a;
+    PF2 = a;
   }
 
   
   func GSGRCK() {
+/*
+; ------------------------------------------------------------
+;
+; Game Select Game Reset ChecK
+;
+; Executed immediately after VCNTRL, this subroutine parses all
+; the console switches.
+;
+*/
 
+    a = SWCHB;		// Start/Reset button....
+    a = a >>> 1; 	// Shove bit 0 into carry flag,
+    if (!carry) {	// and if it's pushed...
+      /*
+      ;
+      ; Start a new game.
+      ;
+      */
+      a = 0x0f;
+      SHOWSCR = a;	// Show right score.
+      a = 0xff;		// Set all bits
+      GameOn = a;	// in GameOn. 
+      a = 0x80;
+      GameTimer = a;	// and bit 7 of GameTimer (this is not too
+	               	// significant, as GameTimer rollover is
+	                // only checked if GameOn<>$00)
+      
+      x = 0xe6;
+      ClearMem();	// zero out $89 thru $A2
+      goto ResetField if zero;	// Unconditional branch
+    }
+NoNewGM:
+    y = 0x02;		// Assume score to be drawn
+    a = GameTimer;	// If game in play (GameOn=$FF) AND
+    a = a & GameOn;	// GameTimer < 7/8 finished @ $F0,
+    cmp(a,0xf0);	// draw the score unconditionally.
+    if(carry) {
+      a = CLOCK;	// CLOCK used to flash score near end
+      a = a & 0x30;	// of play, note the peripheral synchronization
+      if(zero) {	// with GameTimer's timing of the game, which
+        		// always ends when CLOCK & $3F = 0.  CLOCK
+                        // is used here because the score blink
+	                // off duty cycle is a too quick for
+	                // GameTimer to handle, being about 1/3 sec.
+        
+        y = 0x0e;	// Set this for no score
+      }
+    }
+SCdrawn:
+  KLskip = y;		//  where the Kernal will find it
+  a = CLOCK;
+  a = a & 0x3f;		// CLOCK also used to slow debounce reset
+  if (zero) {
+    /*
+    ;
+    ; GameTimer is incremented and SelDbnce reset when
+    ; CLOCK & $3F = 0.  This occurs 1 frame out of 64 or
+    ; about once/second.  Thus the game is 128*64 frames
+    ; or about 2 minutes long.
+    ;
+    */
+    SelDbnce = a;	// Reset Select Debounce Flag.  This is
+    			// what keeps incrementing the selection
+    			// if you hold Select down for a long time.
+    
+    GameTimer++;	// increment the Main Game ~1-sec Timer.
+
+    if (zero) {		// if GameTimer rolls over,
+      GameOn = a;	// zero GameOn -- game over
+    }
+  }
+    
+ChkSel:
+    a = SWCHB;		// Select button???
+    a = a & 0x02;
+    if (!zero) {
+      SelDbnce = a;	// Set flag: Sel has not been down
+//      return if !zero;
+      goto CS_RTS if !zero;
+    
+      bit(SelDbnce);
+      //return if negative;
+    
+      goto CS_RTS if negative;
+    
+      BINvar++;
+    }
+ClrGam:
+    x = 0xdf;
+ClrGRST:
+    ClearMem();
+    a = 0xff;
+    SelDbnce = a;
+    y = BINvar;
+    a = VARMAP[y];
+    GAMVAR = a;
+    a = a ^ 0xff;
+    if (zero) {
+      x = 0xdd;
+      goto ClrGRST if !zero;
+    }
+SelGO:
+    a = BCDvar;
+    decimal = true;
+    carry = false;
+    a = a +#1;
+    BCDvar = a;
+    SCORE = a;
+    decimal = false;
+    bit(GAMVAR);
+    if (negative) {
+      GAMSHP++;
+    	if(overflow) {
+          GAMSHP++;
+        }
+    }
+
+/*
+    
+ChkSel  LDA  SWCHB              ; Select button???
+	AND  #$02
+	BEQ  SelDown
+	STA  SelDbnce           ; Set flag: Sel has not been down
+	BNE  CS_RTS             ; Unconditional branch
+	;
+SelDown BIT  SelDbnce           ; If Sel has been down,
+	BMI  CS_RTS		; don't select a new game.
+	;
+	INC  BINvar             ; SELECT: Go to next game.
+ClrGam  LDX  #$DF               ; Clear data from current game ($82-$A2)
+ClrGRST JSR  ClearMem
+	LDA  #$FF
+	STA  SelDbnce           ; Set flag: Sel has been down.
+	LDY  BINvar
+	LDA  VARMAP,Y           ; Get feature bits for this variation.
+	STA  GAMVAR
+	EOR  #$FF               ; #$FF signifies end of variations
+	BNE  SelGO              ; Not at end yet, set up new game
+	LDX  #$DD		; Clear $80-$A2; resets BINvar, BCDvar
+	BNE  ClrGRST            ; so we start over. BNE is unconditional.
+	;
+SelGO	LDA  BCDvar		; Since we have incremented BINvar, we
+	SED                     ; must increment BCDvar in BCD to keep
+	CLC                     ; it in sync. Note BCDvar is actually
+	ADC  #1                 ; BinVar+1, since it's incremented when
+	STA  BCDvar             ; we reset but don't increment BINvar.
+	STA  SCORE              ; Display variation as score 0
+	CLD
+	BIT  GAMVAR             ; GAMSHP was reset at ClrGam...
+	BPL  ResetField         ; if this is a plane game,
+	INC  GAMSHP             ; increase GAMSHP.
+	BVC  ResetField         ; if this is a jet game,
+	INC  GAMSHP             ; increase GAMSHP further still.
+	;
+	; Branches here when game is started, too.
+	;
+        */
+ResetField:
+    /*
+	JSR  InitPF
+	;
+	; Assuming plane game for now, we set the right player
+	; at a slightly higher position than the left player,
+	; and the position of the right player is irrelevant.
+	;
+	LDA  #50
+	STA  TankY1
+	LDA  #134
+	STA  TankY0
+	BIT  GAMVAR             ; Check to see if it is a tank game.
+	BMI  CS_RTS             ; Nope, bail.
+	                        ; It is a tank game, so
+	STA  TankY1             ; Right tank has same Y value,
+	STA  RESP1              ; and tank is at opposite side.
+	LDA  #$08
+	STA  DIRECTN+1          ; and right player faces left.
+	LDA  #$20
+	STA  HMP0
+	STA  HMP1
+	STA  WSYNC
+	STA  HMOVE
+CS_RTS	RTS  
+*/
+CS_RTS:
+    
   }
   
   func LDSTEL() {
@@ -347,7 +630,7 @@ VField:
 //in rom @ 0xf19a {
   func ClrGam() {
     x = 0xdf;
-    Clearmem();
+    ClearMem();
     a = 0xff;
     SelDbnce = a;
     y = BINvar;
@@ -355,7 +638,7 @@ VField:
   }
 }
 
-in rom @ 0xf5b3 {
+in rom @ 0xf5bd {
   /*
   ;
   ; ------------------------------------------------------------
@@ -372,7 +655,7 @@ in rom @ 0xf5b3 {
   ; Returns with zero bit set.
   ;
   */
-  func Clearmem() {
+  func ClearMem() {
     // clear memory from x to ram_A2;
     a = 0;
     do {
@@ -381,6 +664,59 @@ in rom @ 0xf5b3 {
     } while !zero;
     
   }  
+}
+
+in rom @ 0xF700 {
+  const VARMAP : [u8] = [
+    0b00101000,
+    0b00001000,
+    0b00100000,
+    0b00000000,
+    0b01001000, // TANK PONG
+    0b01000000,
+    0b01011000,
+    0b00100101, // INVISIBLE TANK
+    0b00101001,
+    0b01001001, // INVISBLE TANK-PONG
+    0b01010101,
+    0b01011001,
+    0b10101000, // BIPLANE
+    0xFF // END
+    ];
+  /*
+VARMAP:
+  .BYTE  $24 ;Game 1:  0010 0100  TANK
+	.BYTE  $28 ;Game 2:  0010 1000
+	.BYTE  $08 ;Game 3:  0000 1000
+	.BYTE  $20 ;Game 4:  0010 0000
+	.BYTE  $00 ;Game 5:  0000 0000
+	.BYTE  $48 ;Game 6:  0100 1000  TANK PONG
+	.BYTE  $40 ;Game 7:  0100 0000
+	.BYTE  $54 ;Game 8:  0101 0100
+	.BYTE  $58 ;Game 9:  0101 1000
+	.BYTE  $25 ;Game 10: 0010 0101  INVISIBLE TANK
+	.BYTE  $29 ;Game 11: 0010 1001
+	.BYTE  $49 ;Game 12: 0100 1001  INVISIBLE TANK-PONG
+	.BYTE  $55 ;Game 13: 0101 0101
+	.BYTE  $59 ;Game 14: 0101 1001
+	.BYTE  $A8 ;Game 15: 1010 1000  BIPLANE
+	.BYTE  $88 ;Game 16: 1000 1000
+	.BYTE  $98 ;Game 17: 1001 1000
+	.BYTE  $90 ;Game 18: 1001 0000
+	.BYTE  $A1 ;Game 19: 1010 0001
+	.BYTE  $83 ;Game 20: 1000 0011
+	.BYTE  $E8 ;Game 21: 1110 1000  JET FIGHTER
+	.BYTE  $C8 ;Game 22: 1100 1000
+	.BYTE  $E0 ;Game 23: 1110 0000
+	.BYTE  $C0 ;Game 24: 1100 0000
+	.BYTE  $E9 ;Game 25: 1110 1001
+	.BYTE  $E2 ;Game 26: 1110 0010
+	.BYTE  $C1 ;Game 27: 1100 0001
+	;
+	; $FF to signify end of game variations.
+	;
+	.BYTE  $FF
+        */
 }
 
 // setup vectors
