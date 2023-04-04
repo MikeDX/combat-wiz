@@ -1,36 +1,395 @@
 
 import "banks";
 import "vars";
-in rom @ 0xFb00 {
+in rom @ 0xF5C5     {
  
-  const NUMBERS  @ 0xFb6e - 110 : [u8 ; 22] = [
-  /*{w:8,h:22,bpp:1,brev:1}*/   
-/*0x00, 0x00, 0x00, 0x00, 0x00, 0x33, 0x72, 
-0xDA, 0x1E, 0x1C, 0x18, 0x58, 0x58,
-0x7C, 0x3E, 0x1A, 0x18, 0x10, 0x18, 0x18, 
-0x18, 0x00    */
-    0b00000000, // ; |        |
-    0b00000000, // ; |        |
-    0b00000000, // ; |        |
-    0b00000000, // ; |        |
-    0b00000000, // ; |        |
-    0b00110011, // ; |  XX  XX|
-    0b01110010, // ; | XXX  X |
-    0b11011010, // ; |XX XX X |
-    0b00011110, // ; |   XXXX |
-    0b00011100, // ; |   XXX  |
-    0b00011000, // ; |   XX   |
-    0b01011000, // ; | X XX   |
-    0b01011000, // ; | X XX   |
-    0b01111100, // ; | XXXXX  |
-    0b00111110, // ; |  XXXXX |
-    0b00011010, // ; |   XX X |
-    0b00011000, // ; |   XX   |
-    0b00010000, // ; |   X    |
-    0b00011000, // ; |   XX   |
-    0b00011000, // ; |   XX   |
-    0b00011000, // ; |   XX   |
-    0b00000000, // ; |        |
+  /*
+  ;	Patterns for numbers
+  ;
+  */
+  const NUMBERS : [u8] = [
+  /*{w:8,h:5,bpp:1,brev:1,count: 10}*/   
+    0x0E, 0x0A, 0x0A, 0x0A, 0x0E, //  0 - Leading zero is not drawn
+    				  //      because it's never used.
+    0x22, 0x22, 0x22, 0x22, 0x22, // 11
+    0xEE, 0x22, 0xEE, 0x88, 0xEE, // 22
+    0xEE, 0x22, 0x66, 0x22, 0xEE, // 33
+    0xAA, 0xAA, 0xEE, 0x22, 0x22, // 44
+    0xEE, 0x88, 0xEE, 0x22, 0xEE, // 55
+    0xEE, 0x88, 0xEE, 0xAA, 0xEE, // 66
+    0xEE, 0x22, 0x22, 0x22, 0x22, // 77
+    0xEE, 0xAA, 0xEE, 0xAA, 0xEE, // 88
+    0xEE, 0xAA, 0xEE, 0x22, 0xEE, // 99
+  ];
+  
+  /*
+  ;
+  ; Horizontal and vertical offsets for movement by orientation.
+  ; Basic table is $10 bytes long (22.5-degree increments), but
+  ; XoffBase is added to it to alter for game options.  High
+  ; nibble is raw HMPx value for horizontal offset, low nibble
+  ; is vertical offset in scan lines.
+  ;
+  */
+  const Xoffsets : [u8] = [
+    0xF8, 0xF7, 0xF6, 0x06,	// XoffBase=0
+    0x06, 0x06, 0x16, 0x17,
+    0x18, 0x19, 0x1A, 0x0A,
+    0x0A, 0x0A, 0xFA, 0xF9,
+    
+    0xF8, 0xF7, 0xF6, 0xF6,	// XoffBase=$10
+    0x06, 0x16, 0x16, 0x17,
+    0x18, 0x19, 0x1A, 0x1A,
+    0x0A, 0xFA, 0xFA, 0xF9,
+
+    0xE8, 0xE6, 0xE4, 0xF4,	// XoffBase=$20
+    0x04, 0x14, 0x24, 0x26,	// normal missiles
+    0x28, 0x2A, 0x2C, 0x1C,
+    0x0C, 0xFC, 0xEC, 0xEA
+  ];
+  
+  /* 
+  ; This Xoffsets entry is also used directly for "bumping"
+  ; a player after a hit or to back away from playfield collision
+  ;
+  */
+  
+  const HDGTBL : [u8] = [
+    0xc8, 0xc4, 0xc0, 0xe0,	// XoffBase=$30
+    0x00, 0x20, 0x40, 0x44,	// machine guns, "bump"
+    0x48, 0x4c, 0x4f, 0x2f,
+    0x0f, 0xef, 0xcf, 0xcc
+  ];
+
+
+  /*
+  ;
+  ; Player velocity momentum adjustments.  Table of two-byte
+  ; entries, indexed by player's desired final velocity.  Even
+  ; locations go to MVadjA to be applied during the first half of
+  ; the FwdTimer cycle, and odd locations goe to MVadjB to be
+  ; applied during the second half.
+  ;
+  ; During each half, the byte is rotated left one bit; if
+  ; the bit which emerges is 1, XoffBase is tweaked by $10 
+  ; to adjust the velocity for that frame only.  Since FwdTimer
+  ; goes through 16 cycles or 2 8-bit halves in its course from,
+  ; $F0 to $00, this gives us a bitwise "adjust this frame" flag
+  ; for each frame in the course of FwdTimer's run.  This is
+  ; used to obscure the suddenness of transition from one
+  ; velocity to another.
+  ;
+  ; The adjustment is only done once for each two ON bits
+  ; since the MPace 1 bit is used for the adjustment, and
+  ; MPace is INCed in the same code block that does the
+  ; tweak.  The tweak consists of replacing whatever XoffBase
+  ; the final velocity calls for with $10, an intermediate value.
+  ;
+  */
+  const MVtable : [u8] = [
+    0x00, 0x00,
+    0x80, 0x80,
+    0x84, 0x20,
+    0x88, 0x88,
+    0x92, 0x48,
+    0xA4, 0xA4,
+    0xA9, 0x52,
+    0xAA, 0xAA,
+    0xD5, 0xAA, 
+    0xDA, 0xDA,
+    0xDB, 0x6D,
+    0xEE, 0xEE
+  ];
+  
+ /* 
+ ; These are all the sprite shapes.
+ ; The most I suspect any of you will do is
+ ; modify these.  And/or the number shapes.
+ ;*/
+  
+ const TankShape : [u8] = [
+   /*{w:8,h:8,bpp:1,brev:1,count: 8}*/   
+   0x00, 0xFC, 0xFC, 0x38, 0x3F, 0x38, 0xFC, 0xFC,
+   0x1C, 0x78, 0xFB, 0x7C, 0x1C, 0x1F, 0x3E, 0x18,
+   0x19, 0x3A, 0x7C, 0xFF, 0xDF, 0x0E, 0x1C, 0x18,
+   0x24, 0x64, 0x79, 0xFF, 0xFF, 0x4E, 0x0E, 0x04,
+   0x08, 0x08, 0x6B, 0x7F, 0x7F, 0x7F, 0x63, 0x63,
+   0x24, 0x26, 0x9E, 0xFF, 0xFF, 0x72, 0x70, 0x20,
+   0x98, 0x5C, 0x3E, 0xFF, 0xFB, 0x70, 0x38, 0x18,
+   0x38, 0x1E, 0xDF, 0x3E, 0x38, 0xF8, 0x7C, 0x18
+ ];
+  
+  
+ const JetShape: [u8] = [
+   /*{w:8,h:8,bpp:1,brev:1,count: 8}*/   
+   0x60, 0x70, 0x78, 0xFF, 0x78, 0x70, 0x60, 0x00,
+   0x00, 0xC1, 0xFE, 0x7C, 0x78, 0x30, 0x30, 0x30,
+   0x00, 0x03, 0x06, 0xFC, 0xFC, 0x3C, 0x0C, 0x0C,
+   0x02, 0x04, 0x0C, 0x1C, 0xFC, 0xFC, 0x1E, 0x06,
+   0x10, 0x10, 0x10, 0x38, 0x7C, 0xFE, 0xFE, 0x10,
+   0x40, 0x20, 0x30, 0x38, 0x3F, 0x3F, 0x78, 0x60,
+   0x40, 0x60, 0x3F, 0x1F, 0x1E, 0x1E, 0x18, 0x18, 
+   0x00, 0x83, 0x7F, 0x3E, 0x1E, 0x0C, 0x0C, 0x0C,
+ ];
+
+  const PlaneShape : [u8] = [
+     /*{w:8,h:8,bpp:1,brev:1,count: 8}*/   
+    0x00,0x8E,0x84,0xFF,0xFF,0x04,0x0E,0x00,       
+    0x00,0x0E,0x04,0x8F,0x7F,0x72,0x07,0x00,       
+    0x10,0x36,0x2E,0x0C,0x1F,0xB2,0xE0,0x40,       
+    0x24,0x2C,0x5D,0x1A,0x1A,0x30,0xF0,0x60,       
+    0x18,0x5A,0x7E,0x5A,0x18,0x18,0x18,0x78,       
+    0x34,0x36,0x5A,0x78,0x2C,0x0C,0x06,0x0C,       
+    0x08,0x6C,0x70,0xB8,0xDC,0x4E,0x07,0x06,       
+    0x38,0x10,0xF0,0x7C,0x4F,0xE3,0x02,0x00
+  ];
+
+  /*
+  ;
+  ; These are sub-pointers, used to set up the
+  ; two-dimensional array at CTRLTBL.
+  ;
+  */
+  const CtrlBase : [u8] = [
+    0x00,
+    0x0B,
+    0x16
+  ];
+  
+  /*
+  ;
+  ; Two-dimensional array, 12x3.
+  ;
+  ; This array specifies what the joystick does
+  ; in each game.  Looking at it now the format looks
+  ; like this:
+  ;
+  ;   Low nybble = Amount to rotate object (signed)
+  ;                   $00 = Not at all
+  ;                   $01 = Clockwise         (+1)
+  ;                   $0F = Counter-clockwise (-1)
+  ;   High nybble = Speed to move object (unsigned)
+  ;                   $00 = Not moving
+  ;                   $F0 = Warp speed
+  ;
+  ; Observe the $FF's.  Notice how indexing out of bounds with impossible
+  ; joystick movements will cause strange behavior.
+  ;
+  ; Tank movement
+  ;                    UP  DOWN (No reverse)
+  */
+  const CTRLTBL : [u8] = [
+    0x00, 0x10, 0x00, 0xff,
+    0x01, 0x11, 0x01, 0xff, // LEFT
+    0x0F, 0x1F, 0x0F,	// RIGHT
+    /*
+    ;
+    ; Biplane movement (This is why controls are sideways)
+    ;                    UP  DOWN
+    */
+    0x50, 0x5F, 0x51, 0xFF, // 
+    0x30, 0x3F, 0x31, 0xFF, // LEFT
+    0x70, 0x7F, 0x71,	    // RIGHT
+    
+
+    /*
+    ;
+    ; Jet fighter movement
+    ;                    UP  DOWN
+    */
+    0x90, 0xB0, 0x70, 0xFF,
+    0x91, 0xB1, 0x71, 0xFF, // LEFT
+    0x9F, 0xBF, 0x7F,	    // RIGHT
     
   ];
+  
+  /*
+  ;
+  ;
+  ; Sound information for different game types.
+  ; Different tools of destruction make different
+  ; sound.
+  ;
+  ; There is some more data below which looks to
+  ; be other information; different machines at
+  ; different speeds.  The pitch table is 3D,
+  ; having 12-entry records for each GAMSHP.
+  ;
+  ;         Tanks Biplane, Jet Fighter
+  */
+
+  
+  const SNDV : [u8] = [
+    0x08, 0x02, 0x02, // sound volumes
+  ];
+  
+  const SNDC : [u8] = [
+    0x02, 0x03, 0x08, //  sound types
+  ];
+  
+  const SNDP : [u8] = [
+    0x1D, 0x05, 0x00, // sound pitches indexed by velocity
+    0x00, 0x00, 0x00, // for TANKS
+    0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00,
+    
+    0x00, 0x00, 0x1D, // for BIPLANES
+    0x1D, 0x16, 0x16,  
+    0x0F, 0x0F, 0x00, 
+    0x00, 0x00, 0x00, 
+    
+    0x00, 0x00, 0x00, // for JETS
+    0x00, 0x00, 0x12, 
+    0x10, 0x10, 0x0C, 
+    0x0C, 0x07, 0x07
+  ];
+  
+  /*
+  ;
+  ; Player widths for various plane games.
+  ; Through the miracle of the Atari 2600's NUSIZ
+  ; register, the difference between a 1 vs. 1 game
+  ; and a Bomber vs. 3 game is contained in just
+  ; two bytes.
+  ;*/
+
+  const WIDTHS : [u8] = [
+    0x00, 0x00, // 1 vs 1
+    0x01, 0x01, // 2 vs 2
+    0x00, 0x03, // 1 vs 3
+    0x27, 0x03  // Bomber vs 3
+  ];
+  
+  /*  
+  ; Table of color combinations.  Each 4 byte entry specifies
+  ; Player 0, Player1, Playfield, and Background colors.
+  ; (By a not-so-odd coincidence, these 4 color registers are
+  ; addressed consecutively in the same order in the TIA.)
+  ; Table is indexed by the high 2 bits of GAMVAR << 2, or
+  ; forced to +$10 if B&W switch selected.
+  ;
+  */
+
+  const ColorTbl : [u8] = [
+    0xEA, 0x3C, 0x82, 0x44, // 00 = Regular Tanks
+    0x32, 0x2C, 0x8A, 0xDA, // 01 = Tank Pong
+    0x80, 0x9C, 0xDA, 0x3A, // 10 = Jets
+    0x64, 0xA8, 0xDA, 0x4A, // 11 = Biplanes
+    0x08, 0x04, 0x00, 0x0E  // special B&W
+  ];
+
+  
+  const PF0_0 : [u8] = [
+    0xF0, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10
+  ];
+  
+  const PF1_0 : [u8] = [
+    0xFF, 0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x60, 0x20, 0x20, 0x23
+  ];
+  
+  const PF2_0 : [u8] = [
+    0xFF, 0x80, 0x80, 0x00, 0x00, 0x00, 0x1C, 0x04, 0x00, 0x00, 0x00, 0x00
+  ];
+  const PF1_1 : [u8] = [
+    0xFF
+  ];
+  const PF0_3 : [u8] = [
+    0x00, 0x00, 0x00
+  ];
+  const PF1_3 : [u8] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x1F, 0x3F, 0x7F
+  ];
+  const PF1_2 : [u8] = [
+    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x20, 0x21
+  ];
+  const PF2_2 : [u8] = [
+    0xFF, 0x00, 0x00, 0x00, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x00, 0x07,
+  ];
+
+
+  const SPRLO : [u8] = [
+    <:(&TankShape),
+    <:(&PlaneShape),
+    <:(&JetShape),
+//    <:(&PlaneShape),
+
+  ];
+  const SPRHI : [u8] = [
+    >:(&TankShape),
+    >:(&PlaneShape),
+    >:(&JetShape),
+
+  ];
+
+  
+  const PLFPNT : [u8] = [ 
+    <:(&PF0_0[-4] as u8), <:(&PF0_0[-4] as u8),
+    <:(&PF0_0[-4] as u8), <:(&PF0_3[-4] as u8),
+    <:(&PF1_0[-4] as u8), <:(&PF1_1[-4] as u8),
+    <:(&PF1_2[-4] as u8), <:(&PF1_3[-4] as u8),
+    <:(&PF2_0[-4] as u8), <:(&PF1_1[-4] as u8),
+    <:(&PF2_2[-4] as u8), <:(&PF1_3[-4] as u8),
+    
+    /*
+    PLFPNT	.BYTE  #<(PF0_0-4) ,#<(PF0_0-4)
+	.BYTE  #<(PF0_0-4) ,#<(PF0_3-4)   ;PF0
+	.BYTE  #<(PF1_0-4) ,#<(PF1_1-4)
+	.BYTE  #<(PF1_2-4) ,#<(PF1_3-4)   ;PF1
+	.BYTE  #<(PF2_0-4) ,#<(PF1_1-4)
+	.BYTE  #<(PF2_2-4) ,#<(PF1_3-4)   ;PF2
+        */
+    ];
+  
+    const VARMAP : [u8] = [
+      0b00100100,
+      0b00101000,
+      0b00001000,
+      0b00100000,
+      0b00000000,
+      0b01001000, // TANK PONG
+      0b01000000,
+      0b01010100,
+      0b01011000,
+      0b00100101, // INVISIBLE TANK
+      0b00101001,
+      0b01001001, // INVISBLE TANK-PONG
+      0b01010101,
+      0b01011001,
+      0b10101000, // BIPLANE
+      0b10001000,      
+      0b10011000,
+      0b10010000,
+      0b10100001,
+      0b10000011,
+      0b11101000, // JET FIGHTER
+      0b11001000,
+      0b11100000,
+      0b11000000,
+      0b11101001,
+      0b11100010,
+      0b11000001,
+      0xFF // END
+    ];
+/*  MVtable	.BYTE  $00 ,$00
+	.BYTE  $80 ,$80
+	.BYTE  $84 ,$20
+	.BYTE  $88 ,$88
+	.BYTE  $92 ,$48
+	.BYTE  $A4 ,$A4
+	.BYTE  $A9 ,$52
+	.BYTE  $AA ,$AA
+	.BYTE  $D5 ,$AA
+	.BYTE  $DA ,$DA
+	.BYTE  $DB ,$6D
+	.BYTE  $EE ,$EE
+        */
+// CTRLTBL .BYTE  $00 ,$10 ,$00 ,$FF
+//	.BYTE  $01 ,$11 ,$01 ,$FF ;LEFT
+//	.BYTE  $0F ,$1F ,$0F      ;RIGHT
+
+//    .BYTE  $00 ,$0B ,$16
+  
+  
+
+  
 }

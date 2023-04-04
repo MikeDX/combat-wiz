@@ -37,7 +37,7 @@ namespace vcs {
 
         var triggers @ 0x3C : [u8; 2];
         var trigger1m30 @ 0x0C : u8;
-        var trigger1 @ 0x3C : u8;
+        var trigger1 @ 0x0C : u8;
         var trigger2 @ 0x3D : u8;
         let TRIGGER_JOY_FIRE = 0x80;
 
@@ -209,9 +209,15 @@ namespace vcs {
         var missile1 @ 0x12 : u8;
         var missile2 @ 0x13 : u8;
         var ball @ 0x14 : u8;
+        var m0p0 @ 0x28 : u8;
+      	var m1p1 @ 0x29 : u8;
     }
 
     namespace collision {
+      	var missileplayer @ 0x00 : [u8;2];
+      	var playfieldball @ 0x02 : [u8;2];
+      	var missileplayfield @ 0x04 : [u8;2];
+      
         var clear @ 0x2C : u8;
 
         var missile1_vs_players @ 0x30 : u8;
@@ -257,6 +263,10 @@ extern var CXCLR @ &vcs.collision.clear : u8;
 
 extern var CXP0FBm30 @ &vcs.collision.player1_vs_playfieldm30 : u8;
 extern var CXPPMMm30 @ &vcs.collision.pvp_mvm_m30 : u8;
+extern var CXPPMM @ &vcs.collision.pvp_mvm_m30 : u8;
+extern var CXM0FB @ &vcs.collision.missileplayfield : [u8;2];
+extern var CXM0P @ &vcs.collision.missileplayer : [u8;2];
+extern var CXP0FB @ &vcs.collision.playfieldball : [u8;2];
 
 extern var ENABL @ &vcs.pattern.ball : u8;
 extern var ENAM0 @ &vcs.pattern.missile1 : u8;
@@ -272,6 +282,8 @@ extern var HMOVE @ &vcs.hmove.apply : u8;
 
 extern var HMP0 @ &vcs.hmove.player1 : u8;
 extern var HMP1 @ &vcs.hmove.player2 : u8;
+
+extern var INPT4 @ &vcs.io.trigger1 : u8;
 
 extern var INPT4m30 @ &vcs.io.trigger1m30 : u8;
 
@@ -289,8 +301,12 @@ extern var RESP @ &vcs.reset.players : [u8; 2];
 extern var RESP0 @ &vcs.reset.player1 : u8;
 extern var RESP1 @ &vcs.reset.player2 : u8;
 
+extern var REFP @ &vcs.reflect.player1 : [u8;2];
 extern var REFP0 @ &vcs.reflect.player1 : u8;
 extern var REFP1 @ &vcs.reflect.player2 : u8;
+
+extern var RESMP0 @ &vcs.reset.m0p0 : u8;
+extern var RESMP1 @ &vcs.reset.m1p1 : u8;
 
 extern var SWCHA @ &vcs.io.port_a : u8;
 
@@ -361,7 +377,6 @@ extern var VBLANK @ &vcs.sync.vblank : u8;
 
 extern var SWCHB @ &vcs.io.port_b : u8;
 extern var SWCHA @ &vcs.io.port_a : u8;
-extern var INPT4 @ &vcs.io.trigger1 : u8;
 extern var INPT4m30 @ &vcs.io.trigger1m30 : u8;
 */
 

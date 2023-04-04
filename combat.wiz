@@ -145,7 +145,7 @@ in rom @ ROMADDR {
     a = 0;
     WSYNC = a;
     VSYNC = a;
-    a = 0x43;
+    a = 43;
     TIM64T = a;
   }
   /*
@@ -410,8 +410,10 @@ VnoPF:
     PF2 = a;
   }
 
+//}
+//in rom @ 0xF1A3 {
   
-  func GSGRCK() {
+  #[fallthrough] func GSGRCK() {
 /*
 ; ------------------------------------------------------------
 ;
@@ -443,7 +445,7 @@ VnoPF:
       ClearMem();	// zero out $89 thru $A2
       goto ResetField if zero;	// Unconditional branch
     }
-NoNewGM:
+//NoNewGM:
     y = 0x02;		// Assume score to be drawn
     a = GameTimer;	// If game in play (GameOn=$FF) AND
     a = a & GameOn;	// GameTimer < 7/8 finished @ $F0,
@@ -460,7 +462,7 @@ NoNewGM:
         y = 0x0e;	// Set this for no score
       }
     }
-SCdrawn:
+//SCdrawn:
   KLskip = y;		//  where the Kernal will find it
   a = CLOCK;
   a = a & 0x3f;		// CLOCK also used to slow debounce reset
@@ -484,161 +486,1122 @@ SCdrawn:
     }
   }
     
-ChkSel:
+//ChkSel:
     a = SWCHB;		// Select button???
     a = a & 0x02;
     if (!zero) {
-      SelDbnce = a;	// Set flag: Sel has not been down
-//      return if !zero;
-      goto CS_RTS if !zero;
-    
-      bit(SelDbnce);
-      //return if negative;
-    
-      goto CS_RTS if negative;
-    
-      BINvar++;
+      SelDbnce = a;		// Set flag: Sel has not been down
+      // return if !zero;
+      goto CS_RTS if !zero; 	// Unconditional branch 
     }
-ClrGam:
-    x = 0xdf;
+    
+    bit(SelDbnce);		// If Sel has been down,
+
+      // return if negative;    
+    goto CS_RTS if negative;	// don't select a new game.
+    
+    BINvar++;			// SELECT: Go to next game.
+   
+  }
+  
+#[fallthrough] func ClrGam() {
+    x = 0xdf;			// Clear data from current game ($82-$A2)
+
 ClrGRST:
     ClearMem();
     a = 0xff;
-    SelDbnce = a;
+    SelDbnce = a;		// Set flag: Sel has been down.
     y = BINvar;
-    a = VARMAP[y];
+    a = VARMAP[y];		// Get feature bits for this variation.
     GAMVAR = a;
-    a = a ^ 0xff;
-    if (zero) {
-      x = 0xdd;
-      goto ClrGRST if !zero;
+    a = a ^ 0xff;		//  #$FF signifies end of variations
+    
+    if (zero) {			// Not at end yet, set up new game
+      x = 0xdd;			// Clear $80-$A2; resets BINvar, BCDvar
+      goto ClrGRST if !zero;	// so we start over. BNE is unconditional.
     }
 SelGO:
-    a = BCDvar;
-    decimal = true;
-    carry = false;
-    a = a +#1;
-    BCDvar = a;
-    SCORE = a;
+    a = BCDvar;			// Since we have incremented BINvar, we
+    decimal = true;		// must increment BCDvar in BCD to keep
+    carry = false;		// it in sync. Note BCDvar is actually
+    a = a +#1;			// BinVar+1, since it's incremented when
+    BCDvar = a;			// we reset but don't increment BINvar.
+    SCORE = a;			// Display variation as score 0
     decimal = false;
-    bit(GAMVAR);
-    if (negative) {
-      GAMSHP++;
-    	if(overflow) {
-          GAMSHP++;
+    bit(GAMVAR);		// GAMSHP was reset at ClrGam...
+    if (negative) {		// if this is a plane game,
+      GAMSHP++;			// increase GAMSHP.
+    	if(overflow) {		// if this is a jet game,
+          GAMSHP++;		// increase GAMSHP further still.
         }
     }
 
+}
 /*
-    
-ChkSel  LDA  SWCHB              ; Select button???
-	AND  #$02
-	BEQ  SelDown
-	STA  SelDbnce           ; Set flag: Sel has not been down
-	BNE  CS_RTS             ; Unconditional branch
-	;
-SelDown BIT  SelDbnce           ; If Sel has been down,
-	BMI  CS_RTS		; don't select a new game.
-	;
-	INC  BINvar             ; SELECT: Go to next game.
-ClrGam  LDX  #$DF               ; Clear data from current game ($82-$A2)
-ClrGRST JSR  ClearMem
-	LDA  #$FF
-	STA  SelDbnce           ; Set flag: Sel has been down.
-	LDY  BINvar
-	LDA  VARMAP,Y           ; Get feature bits for this variation.
-	STA  GAMVAR
-	EOR  #$FF               ; #$FF signifies end of variations
-	BNE  SelGO              ; Not at end yet, set up new game
-	LDX  #$DD		; Clear $80-$A2; resets BINvar, BCDvar
-	BNE  ClrGRST            ; so we start over. BNE is unconditional.
-	;
-SelGO	LDA  BCDvar		; Since we have incremented BINvar, we
-	SED                     ; must increment BCDvar in BCD to keep
-	CLC                     ; it in sync. Note BCDvar is actually
-	ADC  #1                 ; BinVar+1, since it's incremented when
-	STA  BCDvar             ; we reset but don't increment BINvar.
-	STA  SCORE              ; Display variation as score 0
-	CLD
-	BIT  GAMVAR             ; GAMSHP was reset at ClrGam...
-	BPL  ResetField         ; if this is a plane game,
-	INC  GAMSHP             ; increase GAMSHP.
-	BVC  ResetField         ; if this is a jet game,
-	INC  GAMSHP             ; increase GAMSHP further still.
-	;
-	; Branches here when game is started, too.
-	;
-        */
-ResetField:
-    /*
-	JSR  InitPF
-	;
-	; Assuming plane game for now, we set the right player
-	; at a slightly higher position than the left player,
-	; and the position of the right player is irrelevant.
-	;
-	LDA  #50
-	STA  TankY1
-	LDA  #134
-	STA  TankY0
-	BIT  GAMVAR             ; Check to see if it is a tank game.
-	BMI  CS_RTS             ; Nope, bail.
-	                        ; It is a tank game, so
-	STA  TankY1             ; Right tank has same Y value,
-	STA  RESP1              ; and tank is at opposite side.
-	LDA  #$08
-	STA  DIRECTN+1          ; and right player faces left.
-	LDA  #$20
-	STA  HMP0
-	STA  HMP1
-	STA  WSYNC
-	STA  HMOVE
-CS_RTS	RTS  
+;
+; Branches here when game is started, too.
+;
 */
-CS_RTS:
+#[fallthrough] func ResetField() {
+    InitPF();
+    /*
+    ;
+    ; Assuming plane game for now, we set the right player
+    ; at a slightly higher position than the left player,
+    ; and the position of the right player is irrelevant.
+    ;
+    */
     
+    a = 50;
+    TankY1 = a;
+    a = 134;
+    TankY0 = a;
+    bit(GAMVAR);		// Check to see if it is a tank game.
+    goto CS_RTS if negative;	// Nope, bail.
+    
+	                        // It is a tank game, so
+    TankY1 = a;			// Right tank has same Y value,
+    RESP1 = a;			// and tank is at opposite side.
+    a = 0x08;
+    
+//    (((&DIRECTN as u8) + 2) as *u8)[0] = a;		
+    DIRECTN1 = a;		// // and right player faces left.
+    a = 0x20;
+    HMP0 = a;
+    HMP1 = a;
+    WSYNC = a;
+    HMOVE = a;
+
+}
+  
+  func CS_RTS() {		// end function marker
+    
+  }
+  
+    /*
+    ; ------------------------------------------------------------
+    ;
+    ; SCoRe OffseT
+    ;
+    ; Convert BCD scores to score pattern offset.
+    ; This involves the horrible, horrible implications
+    ; involved in multiplying by five.
+    ;
+    ; If it weren't for the geniuses at NMOS using BCD,
+    ; this routine would be a nightmare.
+    ;
+    ; This routine starts with Player 1, writes bytes 1 & 3 of
+    ; the table, then decrements X to write bytes 0 & 2 for P0.
+    ;
+    */  
+  func SCROT() {
+    x = 0x01;
+
+    do {
+
+      a = SCOREa[x];
+      // Multiply by 5
+      a = a & 0x0f;	// Lo nibble
+      TEMP = a;
+      a = a << 1; 	// *2
+      a = a << 1; 	// *4
+      carry = false;
+      a = a +#TEMP;	// + original *1 = original * 5
+
+        SCROFF[x] = a;
+      a = SCOREa[x];
+      a = a & 0xf0;	// Repeat for hi nibble. Starts *16
+      a = a >>> 1;	// *8
+      a = a >>> 1;	// *4
+      TEMP = a;		// save the *4 value
+      a = a >>> 1;	// *2
+      a = a >>> 1;	// *1
+      carry = false;
+      a = a +#TEMP;	// + (*4) = original *5
+
+        ((&SCROFF as u8 +2) as *u8)[x] = a;
+
+      x--;		// Decrement & repeat once for P0
+    } while !negative;
+
+  }
+  /*
+  ; ------------------------------------------------------------
+  ;
+  ; SeTuP Motion for PLayers
+  ;
+  ; Apply horizontal and vertical motion
+  ;
+  */
+  func STPMPL() {
+    bit(GUIDED);
+    goto STPnoMG if !overflow;	// Branch if not machine gun game.
+    a = 0x30;			// (Machine gun bullets move faster)
+    goto STPMG if !negative;	// Unconditional JMP.
+STPnoMG:
+    a = 0x20;
+STPMG:
+    XoffBase = a;		// $30=machine gun, $20=normal
+    x = 0x03;
+    STPM();			// Do the honors for X=3, Missile 1
+    x--;
+    STPM();			// Now X=2, M0
+    x--;			// Now X=1, P1; we will DEX and loop
+STPnext:
+    a = FwdTimer[x];		// back to run this code block again
+    a = a & 0x08;		// with X=0 for P0.
+    a = a >>> 1;		// (to 4) This bit on means FwdTimer has
+    a = a >>> 1;		// (to 2) run half of the FwdTimer period
+    				// ($F0 to $FF and roll)
+	                        // This bit will index MVadjA or MVadjB
+    TEMP1 = x;			// Player # --> TEMP1
+    carry = false;
+    a = a +#TEMP1;
+    y = a ;			// Player # + FwdTimer half done*2 --> Y
+    a = MVadjA[y];		// And retrieve MVadjA or MVadjB via Y
+    
+    carry = true;		// assume bit 7 on
+    goto STP7set if negative;	// OK, it is
+    carry = false;		// whoops, backtrack
+STP7set:
+    a = a <<<<# 1;		// carry=bit 7, now ROL; net effect is to
+    				// rotate left inserting duplicate MSB
+    MVadjA[y] = a;		// instead of original Carry, and save it
+    goto STPnoV if !carry;	// Skip next code block if bit wasn't 1
+
+    a = MPace[x];		// Tweak velocity by changing XoffBase
+    a = a & 0x01;		// but only every other time we get here
+    a = a << 1;	
+    a = a << 1;	
+    a = a << 1;	
+    a = a << 1;	
+
+    XoffBase = a;		//  XoffBase=$0 or $10 via (MPace & 1) << 4
+    STPM();			//  Note this is where we INC MPace
+    
+STPnoV:
+    
+    x--;			// Move to _previous_ player.
+    goto STPnext if zero;	// Stop if about to do player -1.  :)
+    
+  }
+  
+  /*
+  ;
+  ; This routine will move both tanks and missiles.
+  ; Special cases are made for missiles, which are
+  ; otherwise treated as players 2 and 3.
+  ;
+  ; It doesn't change the X register, but it does
+  ; utilize it.
+  ;
+  */
+   #[fallthrough] func STPM() {
+    MPace[x]++;
+    a = DIRECTNa[x];
+    a = a & 0x0f;
+    carry = false;
+    a = a +#XoffBase;		// Pick table offset by game condition
+    y = a;
+    a = Xoffsets[y];		// X-offset by orientation.
+    XOFFS = a;			// Store the default HMPV code.
+    bit(PF_PONG);
+    goto STPgo if overflow;	// Branch if (fast) Pong missiles
+    a = (&DIRECTN as *u8)[x];
+    carry = true;
+    a = a -#0x02;		// If motion is near X or Y axis,
+    a = a & 0x03;
+    goto STPgo if !zero;	// don't apply delay
+    a = MPace[x];		// but if very diagonal, slow a bit by
+    a = a & 0x03;		// moving only 3 of every 4 frames
+    goto STPgo if !zero;
+    a = 0x08;			// HMPV for no motion X or Y
+    XOFFS = a;			// no motion this frame
+STPgo:
+    a = XOFFS;
+  }
+  /*
+  ;
+  ; (This falls through, but PhMove is also called from elsewhere)
+  ;
+  ; Physically move a tank (0,1) or missile (2,3)
+  ; according to the HMPV code in A
+  ;
+  */
+  func PhMove() {
+//PhMove:
+    (&HMP0 as *u8)[x] = a;		// Hi nibble sets HMPx horizontal motion
+    a = a & 0x0f;			// Lo nibble...
+    carry = true;
+    a = a -#0x08;			// less 8 for 2's complement 4-bit...
+    AD4 = a;				// (save this offset)
+    carry = false;
+    a = a +#(&TankY0 as *u8)[x];	// add to Y-coordinate
+    bit(GAMVAR);
+    goto PhNoTank if negative;		// Branch if a plane game.
+    cmp(x,0x02);
+    goto PhNoWrap if carry;		// Branch if moving a tank player
+PhNoTank:
+    cmp(a,0xdb);			// Perform vertical wrap-around
+    goto PhNoWrapTop if carry;		// branch if over top (wrap)
+    cmp(a,0x25);
+    goto PhNoWrap if carry;		// branch if over bottom (no wrap)
+    
+PhNoWrapTop:
+    a = 0xd9;				// Assume we wrapped bottom to top
+    bit(AD4);				// Meaning offset was negative
+    goto PhNoWrap if negative;
+    a = 0x28;				// Otherwise, we wrapped top to bottom
+PhNoWrap:
+    (&TankY0 as *u8)[x] = a;		// The tank/missile is moved here.
+    cmp(x,0x02);
+    goto PhnoVD if carry;		// Skip if moving a missile.
+    (&VDELP0 as *u8)[x] = a;		// Vertical Delay Player X...
+PhnoVD:
+  }
+  /*
+  ; ------------------------------------------------------------
+  ;
+  ; ROTate player sprites
+  ;
+  ; This subroutine sets up the sprite data for each player by copying
+  ; them into sixteen bytes of RAM. 
+  ; 
+  ; The X-register starts at $0E plus player number and goes down by two 
+  ; each time through the loop, until it hits zero.  This way, after calling 
+  ; this subroutine twice, every even-numbered byte contains the left player 
+  ; shape, and every odd-numbered byte contains the right player shape.  Since 
+  ; each player is updated every two scanlines, this saves us some math.
+  ;
+  ; Only the first 180 degrees of rotation has been drawn into ROM.  In the
+  ; case of the other 180 degrees, this subroutine renders a flipped version
+  ; by doing the following:
+  ;
+  ; 1. It sets the TIA's reflection flag for that player, taking care of 
+  ;    the horizontal aspect rather easily.
+  ;
+  ; 2. It copies the bytes into memory last-to-first instead of first-to-
+  ;    last, using the carry bit as a flag for which to do.
+  ;
+  */
+
+  func ROT() {
+    a = 0x01;			// The LO byte of CLOCK used to
+    a = a & CLOCK;		// select alternate players on
+    x = a;			// alternate frames
+    a = (&DIRECTN as *u8)[x];
+    REFP[x] = a;		// Step 1 taken care of.
+    a = a & 0x0f;
+    y = a;			// Y = DIRECTN[X] & 0x0F.
+    bit(GUIDED);
+    goto ROTnoGM if !negative;	// If it's a guided missile game,
+    DIRECTN2a[x] = y;		// copy player bearings to missile
+ROTnoGM:
+    a = x;
+    a = a ^ 0x0E;		// X ^= $0E,
+    x = a;
+    a = y;
+    a = a << 1;
+    a = a << 1;
+    a = a << 1;
+    cmp(a,0x3F);		// And so step 2 begins...
+    carry = false;
+    goto ROTnoFlip if negative; // Branch if <180 deg.
+    carry = true;
+    a = a ^ 0x47;		// The EOR sets bits 0-2, and clears bit 4
+	             		// to subtract 180 degrees from the memory
+			        // pointer, too.
+    
+    
+ROTnoFlip:
+    y = a;
+    /*
+    ;
+    ;Put all the shapes where they ought to be.
+    ;
+    */
+ROTnext:
+    a = (SHAPES as *u8)[y];
+    HIRES[x] = a;
+    goto ROTinc if !carry;
+    y--;			// Decrement instead of increment
+    y--;			// plus cancel the upcoming INY.
+ROTinc:
+    y++;			// More of step 2.
+    x--;
+    x--;			// X-=2.
+    goto ROTnext if !negative;	// Do for both, 1 then 0 then stop.
+  }
+
+  /*
+  ; ------------------------------------------------------------
+  ;
+  ; CHecK joystick SWitches
+  ;
+  ; If we are in the interval while a loser's tank is stirring,
+  ; he stirs and the winner freezes or goes forward.  Otherwise,
+  ; parse the joystick inputs and move the tanks appropriately.
+  ;
+  */
+  #[fallthrough] func CHKSW() {
+    a = StirTimer;		// We must dec StirTimer by 2
+    carry = true;		// since bit 0 is identity of
+    a = a -#0x02;		// the stirree
+    goto NoStir if !carry;	// If no tank is exploding,
+    				// parse joystick instead.
+    
+    StirTimer = a;
+    cmp(a,0x02);
+    goto StirRTS if !carry;	// RTS if tank has
+    				// just finished exploding.
+    				// Stir the LOSER's tank.
+    
+    a = a & 0x01;
+    x = a;
+    
+    // One of these is the tank's bearings.
+    (DIRECTNa)[x]++;
+    a = XColor0[x];
+    (&Color0 as *u8)[x] = a;
+    a = StirTimer;
+    cmp(a,0xF7);		// We only rush the tank for a
+    goto NoStirRush if !carry;	// small part of the stir interval
+    RushTank();
+NoStirRush:
+    a = StirTimer;
+    goto StirRTS if !negative;	// Don't start decrementing
+    				// volume until halfway through.
+    
+    a = a >>> 1;
+    a = a >>> 1; 		// StirTimer scales audio volume
+    a = a >>> 1;
+    
+  }
+  
+#[fallthrough] func BoomSnd() {
+    (&AUDV0 as *u8)[x] = a;	// Set explosion sound to volume in A
+    a = 0x08;			// and pitch according to player X
+    (&AUDC0 as *u8)[x] = a;
+    a = AudPitch[x];
+    (&AUDF0 as *u8)[x] = a;
+
+    /*
+    ;
+    ; Process joysticks.
+    ;
+    */
+}
+  
+  func StirRTS() {
+    
+//StirRTS:
+
+//    return;
+  }
+  #[fallthrough] func NoStir() {
+NoStir:
+    x = 0x01;		// Start with P1
+    a = SWCHB;		// Console switches.
+    DIFSWCH = a;	// Store switches.  Before we return
+	                // via DEX to do P0, we will ASL this
+	                // byte so difficulty bit for working
+	                // player appears in bit 7.
+    
+    a = SWCHA;		// Joysticks. Before we return via
+	                // DEX to do P0, we will reload and
+	                // LSR this 4 times so controls for
+	                // the working player appear in the
+NextPJS:
+    bit(GameOn);	// LO nibble
+    goto NoFreezeJS if negative;	// Branch if game on (via bit 7).
+    a = 0xff;		// Freeze all joystick movement.
+
+NoFreezeJS:
+    a = a ^ 0xff;	// Reverse all bits
+    a = a & 0x0f;	//  Keep low four bits (working player)
+    
+    /*
+    ;
+    ; At this point, the joystick's switches are in
+    ; the A-register, with a bit set wherever the
+    ; joystick is pointed.
+    ;
+    ; Bit 0 = up    Bit 1 = down
+    ; Bit 2 = left  Bit 3 = right
+    ;
+    */
+    TEMP = a;
+    y = GAMSHP;
+    a = CtrlBase[y];		// Account for two-dimensional array
+    carry = false;
+    a = a +#TEMP;
+    y = a;
+    a = CTRLTBL[y];		// Get rotation from CTRLTBL.
+    a = a & 0x0f;
+    TEMP1 = a;			// Stash it here
+    goto NoTurn if zero;	// Branch if no turn.
+    cmp(a,LastTurn[x]);		// If new turn is different direction
+    goto TurnReset if !zero;	// from last turn, reset the...
+NoTurn:
+    TurnTimer[x]--;		// ...turn pacing delay and...
+    goto DoFwdMotion if !zero;	// ...inhibit turn this interval.
+    
+TurnReset:			// We do turn-wait counts even when
+    LastTurn[x] = a;		// we aren't turning, for consistency
+    a = 0x0f;			// Initial countdown value to delay
+    TurnTimer[x] = a;		// 22.5-degree turns
+    
+    a = TEMP1;			// Retrieve rotation code
+    carry = false;		// Turn +/- 22.5-degrees or zero,
+    a = a +#(&DIRECTN as *u8)[x];	// per DIRECTN
+    (&DIRECTN as *u8)[x] = a;
+
+    /*
+    ;
+    ; For reference, we do get here every frame (~60Hz) during game.
+    ; COMBAT does not change player speed instantaneously; it has
+    ; an elaborate momentum system, which is just barely noticeable
+    ; in the course of game play.
+    ;
+    */
+DoFwdMotion:
+    FwdTimer[x]++;			// Inc FwdTImer and if it doesn't
+    goto SkipFwdCtrl if negative;	// roll over, don't acknowledge velocity
+    a = CTRLTBL[y];			// changes yet
+    a = a >>> 1;
+    a = a >>> 1;
+    a = a >>> 1;
+    a = a >>> 1;			// Get forward velocity from CTRLTBL
+    
+    /*
+    ;
+    ; This is the desired _final_ velocity of the player.  If
+    ; it is different from the player's _current_ velocity, we
+    ; won't reach it until the end of the FwdTimer period.
+    ;
+    */
+    bit(DIFSWCH);		
+    goto FwdPro if negative;	// Branch if difficulty="Pro" 
+    				// (reduces A and branches back to FwdNorm)
+    
+FwdNorm:
+    Vtemp[x] = a;		// Stash velocity in Vtemp 
+    a = a << 1;			// Multiply by two
+    y = a;			// Stash in Y.
+    a = MVtable[y];		// Indexed by velocity * 2, even
+    MVadjA[x] = a;		// V+MVtable goes to MVadjA+X
+    y++;			// Why not LDA MVtable+1,Y?
+    a = MVtable[y];
+    MVadjB[x] = a;		// odd V+MVtable goes to MVadjB+X
+    a = 0xf0;			// Initialize FwdTimer
+    FwdTimer[x] = a;		// (Counts up to $00 before fwd
+    				//motion change is final)
+    
+SkipFwdCtrl:
+    ChkVM();
+    a = SWCHA;			// Joysticks..
+    a = a >>> 1;
+    a = a >>> 1;
+    a = a >>> 1;
+    a = a >>> 1;		// Keep bottom four bits (Left Player)
+    DIFSWCH = DIFSWCH << 1;	// Use other difficulty switch.
+    x--;
+    goto NextPJS if zero;
+    return;
+FwdPro:
+    carry = true;		// Velocity is in A
+    a = a -#GAMSHP;		// subtract 0/tank, 1/biplane, 2/jet
+    goto FwdNorm if !negative;	// Not obvious, but this is unconditional    
+  }
+
+ /*
+ ; ------------------------------------------------------------
+ ;
+ ; Check invisible tank visibility, missile lifetime expiration;
+ ; read trigger if appropriate and launch a new missile
+ ;
+ */
+  func ChkVM() {
+    a = GAMVAR;
+    goto NoInvis if negative;	// Branch if plane game
+    a = a & 0x01; 		// check also for bit 0 (invisible).
+    goto NoInvis if zero;
+    a = ColorBK;		// Make invisible tank invisible
+    (&Color0 as *u8)[x] = a;
+NoInvis:
+    a = MisLife[x];
+    goto RdTrig if zero;	// Branch if no missile in flight
+    a = XColor0[x];		// Reset tank to normal color
+    (&Color0 as *u8)[x] = a;
+    a = MisLife[x];		// How long does missile have to go?
+    cmp(a,0x07);
+    goto MisKill if !carry;	// Branch to go ahead and kill it
+    bit(DIFSWCH);		// Check difficulty
+    goto MisEZ if !negative;	// If game is hard,
+    cmp(a,0x1c);		// Compare mislife to this
+    goto MisKill if !carry;	// and expire it early.
+MisEZ:
+    cmp(a,0x30);		// If MisLife < 30 do motor
+    goto MotMis if !carry;	// do motor, not shot sound
+    cmp(a,0x37);		// If MisLife >= 37
+    goto MisFly if carry;	// do sliding boom sound (shot)
+    bit(GUIDED);
+    goto MisFly if !overflow;	// Branch if machine gun.
+MisKill:
+    a = 0x00;			// Reset missile's life, killing it
+    MisLife[x] = a;
+    a = 0xff;			// And reset its position
+ResRTS:
+    (&RESMP0 as *u8)[x] = a;		// to player.
+    return;
+RdTrig:
+    bit(GameOn);		// Branch if no game on
+    goto RDnoGame if !negative;	// (via bit 7 being clear)
+    a = (&INPT4 as *u8)[x];		// Read Input (Trigger) X.
+    goto Launch if !negative;	// unconditional branch -- Launch missile
+    
+RDnoGame:
+    MOTORS();
+    goto MisKill;
+
+MotMis:
+    MOTORS();
+    goto MisAge;    
+MisFly:
+    a = AltSnd[x];
+    goto MisBoom if zero;
+    MOTORS();
+    a = 0x30;
+    MisLife[x] = a;
+    goto MisAge;
+
+MisBoom:
+    a = MisLife[x];
+    (&BoomSnd as func)();
+
+MisAge:
+    a = CLOCK;		// Missile aging rate depends on type
+    a = a & 0x03;	// Only do this test 3/4 of the time
+    goto MisDec if zero;
+    bit(BILLIARD);
+    goto MisDSkp if overflow; // branch if Billiard (must bounce before hit)
+    bit(PF_PONG);
+    goto MisDec if !overflow;	// branch if not Pong game (PF_PONG bit 6)
+    a = a & 0x01;		// Upshot of this is, in non-billiard Pong
+    goto MisDSkp if !zero;	// game, missiles last about twice as long
+   
+MisDec:
+    MisLife[x]--;	// I'm getting older!
+MisDSkp:
+    a = 0x00;
+    goto ResRTS if zero;	// Unconditional -- DO NOT Reset missile to tank
+    				// (we'd need $02 on to do that) but RTS
+    
+    /*
+    ;
+    ; Launch a missile
+    ;
+    */
+Launch:
+    a = 0x3f;			// Init MisLife to $3F
+    MisLife[x] = a;
+    carry = true;
+    a = (&TankY0 as *u8)[x];	// Copy Y-position... Tank Y-position points
+	                        // to top of sprite, but missile is launched
+    a = a -#6;			// from its center 6 scanlines down.
+    (&MissileY0 as *u8)[x] = a;
+    a = (&DIRECTN as *u8)[x];	//  Copy player bearing to missile.
+    DIRECTN2a[x] = a;
+    a = 0x1f;
+    BounceCount[x] = a;		// Init BounceCount to $1F
+    a = 0x00;
+    MxPFcount[x] = a;		// Reset MxPFcount
+    goto MisFly;		// Proceed w/missile in flight
+    
+  }
+  /*        
+  ; ------------------------------------------------------------
+  ;
+  ; This routine generates engine or Pong sound as appropriate.
+  ;
+  */
+  func MOTORS() {
+    a = AltSnd[x];
+    goto DOMOTOR if zero;
+    a = 0x04;
+    (&AUDC0 as *u8)[x] = a;
+    a = 0x07;
+    (&AUDV0 as *u8)[x] = a;
+    a = BounceCount[x];
+    (&AUDF0 as *u8)[x] = a;
+  }
+  
+  // Engine sound.
+
+  func DOMOTOR() {
+    y = GAMSHP;
+    a = SNDV[y];
+    a = a & GameOn;		// Kills sound if no game on by ANDing
+    (&AUDV0 as *u8)[x] = a;	// volume value w/$00 no-game value
+    a = SNDC[y];
+    (&AUDC0 as *u8)[x] = a;
+    carry = false;
+    a = 0x00;
+    
+MOPIT0:
+    y--;			// This loop sets start value for sound
+    goto MOPIT1 if negative;	// pitch based on GAMSHP in Y (tank,
+    a = a +#0x0c;		// biplane, or jet)
+    goto MOPIT0 if !negative;
+MOPIT1:
+    a = a +#Vtemp[x];		// Use saved velocity to adjust
+    y = a;			// sound pitch via SNDP table
+    a = x;
+    a = a << 1;
+    a = a +#SNDP[y];
+    (&AUDF0 as *u8)[x] = a;
+    
+	/*
+
+DOMOTOR	LDY  GAMSHP
+	LDA  SNDV,Y
+	AND  GameOn             ; Kills sound if no game on by ANDing
+	STA  AUDV0,X            ; volume value w/$00 no-game value
+	LDA  SNDC,Y
+	STA  AUDC0,X
+	CLC  
+	LDA  #$00
+MOPIT0  DEY                     ; This loop sets start value for sound
+	BMI  MOPIT1             ; pitch based on GAMSHP in Y (tank,
+	ADC  #$0C               ; biplane, or jet)
+	BPL  MOPIT0
+MOPIT1  ADC  Vtemp,X            ; Use saved velocity to adjust
+	TAY                     ; sound pitch via SNDP table
+	TXA  
+	ASL   
+	ADC  SNDP,Y
+	STA  AUDF0,X
+	RTS  
+        */
+
+  }
+  
+  /*
+  ; ------------------------------------------------------------
+  ;
+  ; COLISion check
+  ;
+  ; 150 lines of angel-hair spaghetti code
+  ;
+  ; Check to see whether, during all that drawing,
+  ; a missile hit one of the tanks, or a tank hit
+  ; the wall or the other tank, and if so let
+  ; the consequences fall.
+  ;
+  */
+
+  #[fallthrough] func COLIS() {
+    x = 0x01;			// Do first for P1, DEX, P0, etc.
+  }
+  func COLnext() {
+    a = CXM0P[x];
+    goto COLnoHIT if !negative;	// No missile collision
+    bit(BILLIARD);
+    goto COLDET if !overflow;	// Not Billiard game, go ahead & do it
+    a = BounceCount[x];
+    cmp(a,0x1f);
+    goto COLnoHIT if zero;	// Billiard 1st bounce not satisfied
+    
+    /*
+    ;
+    ; A touch, a touch!  I do confess.
+    ;
+    */
+COLDET:
+    (&DIRECTN as *u8)[x]++;	// Turn both tanks 22.5 degrees.
+    DIRECTN2a[x]++;
+    
+    /*
+    ;
+    ; Increase player's score. A simple INC SCORE,X
+    ; won't do because we're doing it in BCD.
+    ;
+    */
+    decimal = true;
+    a = SCOREa[x];
+    carry = false;
+    a = a +#1;
+    SCOREa[x] = a;
+    decimal = false;
+    a = x;
+    carry = false;
+    a = a +#0xFD;
+    StirTimer = a;
+    
+    /*
+    ;
+    ; Now StirTimer contains loser's ID in bit 0,
+    ; victor's ID in bit 1, and set bits 2-7.
+    ; Bit 1 ID is never used, and just creates a
+    ; slight, unnoticeable difference in stir time.
+    ;
+    */
+    a = 0xff;
+    RESMP0 = a;			// Reset both missiles.
+    RESMP1 = a;
+    a = 0x00;
+    (&AUDV0 as *u8)[x] = a;	// Turn off the victor's engine.
+    MisLife0 = a;		// clear MisLife (no missile)
+    MisLife[1] = a;			// and 9A.
+  }
+    /*
+    ;
+    ; We didn't just end the game, so we deal with some
+    ; sound and bounce logic
+    ;
+    */
+        
+  func COLnoHIT() {
+    bit(GAMVAR);
+    goto COLTNK if !negative;	// Branch if a tank game.
+    goto COLPD;			// Skip this code if NOT a tank game
+
+COLTNK:
+    a = AltSnd[x];
+    goto COLnoAlt if zero;
+    cmp(a,0x04);		// See if alt sound has played out
+    AltSnd[x]++;		// Increment if it has not
+    goto COLnoAlt if !carry;
+    a = 0x00;			// if played out, reset to 0 "no alt sound"
+    AltSnd[x] = a;
+
+COLnoAlt:
+    a = CXM0FB[x];		// Missile collision with playfield?
+    goto COLMPF if negative;	// If true, bounce or obliterate...
+    a = 0x00;
+    MxPFcount[x] = a;		// ...else clear MxPFcount
+    goto COLTCK;
+
+COLMPF:
+    bit (PF_PONG);
+    goto COLMISX if !overflow;	// Branch if not Pong (bit 6 clear)
+    
+    a = MxPFcount[x];		// It's Pong, so we bounce
+    goto COLMPFX if !zero;	// Branch if collision is already ongoing
+    AltSnd[x]++;		// NEW COLLISION, set alt sound flag
+    BounceCount[x]--;
+    a = DIRECTN2a[x];		// First try at reflecting
+    OldMisDir[x] = a;		// Stash current missile heading
+    a = a ^ 0xff;		// reverse heading by complement,
+    DIRECTN2a[x] = a;		// then increment=additive inverse
+    DIRECTN2a[x]++;		// same as subtracting from zero
+    a = DIRECTN2a[x];		// check new heading
+    a = a & 0x03;		// See if it's moving exactly N,S,E, or W
+    goto COLXY0 if !zero;
+    DIRECTN2a[x]++;		// and add 22.5 degrees if so
+
+COLXY0:
+    goto COLMPFDone;
+
+  /*
+  ;
+  ; I always wondered how this works.  Stella does not know the
+  ; orientation of the wall that was hit, so this is how it
+  ; reflects:
+  ;
+  ; Immediately after a collision, it tries a vertical reflection,
+  ; jiggering the result so that it won't be exactly vertical or
+  ; exactly horizontal.
+  ;
+  ; If this is the next frame (MxPFcount=$01) that failed, so
+  ; we reverse direction 180 degrees to turn it into a horizontal
+  ; reflection.
+  ;
+  ; On MxPfcount=$02 we take no action, since the missile may need
+  ; the cycle to re-emerge from a wall.
+  ;
+  ; On MxPFcount=$03 or higher, we retrieve the original heading and
+  ; turn it 180 degrees, assuming a corner reflection.  And we keep
+  ; applying this same bearing until it's out of the #*%@ wall.
+  ;
+  */
+COLMPFX:
+    cmp(a,0x01);		// branch if
+    goto Rev180 if zero;	// exactly 1 previous collision frame
+    cmp(a,0x03);		// branch if
+    goto COLMPFDone if !carry;	// less than 3 collision frames
+    goto COLMPFDone if !zero;	// or more than three
+    a = OldMisDir[x];		// retrieve pre-bounce missile heading
+    goto Bump180;		// and reverse it 180 degrees
+    
+    /*
+    ;
+    ; Exactly 1 previous collision:  Do a 180-degree reversal, meaning
+    ; 90 degrees the *other* way from our initial course.
+    ;
+    */
+    
+    
+    
+Rev180:
+    a = DIRECTN2a[x];	// Here to add 180 degrees
+Bump180:
+    carry = false;	// Here to add A to missile dir
+    a = a +#0x08;
+    DIRECTN2a[x]=a;
+    goto COLMPFDone;
+    
+  
+COLMISX:
+    a = 0x01;		// If it's not Pong, we come here and
+    MisLife[x] = a;	// set the missile's life to 1 to kill it.
+
+COLMPFDone:		// When we're done, increase collision
+    MxPFcount[x]++;	// frame count & move on.
+
+    /*
+    ;
+    ; Check for tank collisions
+    ;
+    */
+
+COLTCK:
+    a = CXP0FB[x];
+    goto COLTW if negative; 	// check if tank collided with a wall.
+    a = CXPPMM;			// check for a tank-tank collision.
+    goto COLTCLR if !negative;	// branch if NO tank collisions at all
+    
+COLTW:
+    a = StirTimer;		// See if we are stirring a tank
+    cmp(a,0x02);
+    goto COLTnk1 if !carry;		// No, branch & block
+    RushTank();			// We are stirring, send it scooting
+    
+COLTCLR:
+    a = 0x03;			// No tank collision, reset counter
+    COLcount[x] = a;
+    goto COLPD if !zero;	// unconditional branch, player done
+
+COLTnk1:
+    COLcount[x]--;		// Tank colliding
+    goto COLbonk if negative;	// COLcount rolled, ignore collision
+    a = Vtemp[x];
+    goto COLPD if zero;		// No boink if velocity=0, player done
+    goto COLreverse if !zero;
+    
+COLbonk:
+    DIRECTNa[x]++;		// Jigger direction 22.5 for disorientation
+
+COLreverse:
+    a = DIRECTNa[x];
+    carry = false;
+    a = a +#8;		// Add 180 degrees to direction
+    BumpTank();		// to bump tank back
+    
+    /*
+    ;
+    ; COLIS Player Done
+    ;
+    */
+    
+COLPD:
+    x--;
+    goto COLrts if negative;	// Return if X<0.
+    goto COLnext;			// Else do the other player
+
+COLrts:
+  }
+//    return;
+    /*
+    ;
+    ; Bump the tank in the direction 
+    ; the other player's missile is moving
+    ;
+    */
+
+  #[fallthrough] func RushTank() {
+    a = x;
+    a = a ^ 0x01;	// Get OTHER player #
+    y = a;		// in Y
+    a = DIRECTN2a[y];	// OTHER player Missile's Direction
+    
+    /*
+    ;
+    ; Bump the tank in the direction of a standard
+    ; 22.5-degree bearing code
+    ;
+    */
+  }
+    
+  func BumpTank() {
+    a = a & 0x0f;
+    y = a;
+    a = HDGTBL[y];
+    PhMove();		// Move object in that direction.
+    a = 0;
+    MVadjA[x] = a;
+    MVadjB[x] = a;
+    FwdTimer[x] = a;	// Stop it dead in its tracks....
+    a = XColor0[x];
+    (&Color0 as *u8)[x] = a;
+    
+  }
+  /*
+  ; ------------------------------------------------------------
+  ;
+  ; This was probably a toplevel routine early in development,
+  ; but ended up getting called from GSGRCK. It sets everything
+  ; up to draw the playfield based on the current game selection.
+  ;
+  */
+
+  func InitPF() {
+//    goto InitPF;
+    x = GAMSHP;			// 0=tank, 1=biplane, 2=jet
+    a = SPRLO[x];		// Set up base pointer to all
+    (&SHAPES as *u8)[0] = a;	// sprite shapes which will
+    a = SPRHI[x];		// be used in this game.
+    (&SHAPES as *u8)[1] = a;
+    
+    a = GAMVAR;			// Now set up PF_PONG and playfield type
+    a = a >>> 1;
+    a = a >>> 1;
+    a = a & 0x03;		// bits 0,1=maze (playfield) type.
+    x = a;			// send it to X.
+    a = GAMVAR;
+    goto IFgo if !negative;	// Branch not plane game, PF_PONG=GAMVAR
+    a = a & 0x08;		// Test for clouds
+    goto IF80 if zero;		// Branch if no clouds
+    x = 0x03;			// change "maze type" in X to 3 ("clouds")
+    goto IFskip if !negative;	// Unconditional skip to next test,
+    				// leaving PF_PONG set to 0.
+IF80:
+    a = 0x80;			// Change PF_PONG to #$80
+	                        // (enable playfield, no Pong)
+IFgo:
+    PF_PONG = a;		// store GAMVAR or #$80 in PF_PONG.
+IFskip:
+    a = GAMVAR;			// Next test..
+    a = a << 1;
+    a = a << 1;		// Do this again....
+    bit(GAMVAR);
+    goto IFnoPlane if negative;	// Branch if a plane game.
+    WSYNC = a;			// This MUST be something that dropped
+	                        // through the cracks, there is NO reason!
+    BILLIARD = a;		// Store GAMVAR*4 in 84 (bit 6 = Billiard Hit)
+    a = a & 0x80;		// IF it's a tank game.
+    
+IFnoPlane:
+    GUIDED = a;			// set guided missile flag.
+    
+    /*
+    ;
+    ; GUIDED is ZERO if a tank game
+    ; it is negative if a guided missile game,
+    ; it is overflowed if a machine gun game.
+    ; (Inapplicable in tank games, hence the
+    ; previous branch trick)
+    ;
+    */
+    a = >:&PF0_0;		// Store page of first PF map
+    (&LORES as *u8)[1] = a;	// as high order byte
+    (&LORES as *u8)[3] = a;	// for all of these pointers,
+    (&LORES as *u8)[5] = a;	// 'cause that's where it is.      
+    /*
+    ;
+    ; Store the proper offsets for each column of
+    ; playfield from the vectors given
+    ;
+    */
+    
+    a = PLFPNT[x];
+    RESP0 = a;			// Reset player 0 while we're at it.
+    LORES8  = a;
+    a = (&PLFPNT[4] as *u8)[x];
+    (&LORES8 as *u8)[2] = a;
+    a = (&PLFPNT[8] as *u8)[x];
+    (&LORES8 as *u8)[4] = a;    
   }
   
   func LDSTEL() {
+    a = GAMVAR;
+    a = a & 0x87;
+    goto LDmult if negative;
+    /*
+    ;
+    ; If bit 7 is set, we are playing with one or more
+    ; planes.  If not, well, we can only have one tank,
+    ; so...
+    ;
+    */
     
+    a = 0x00;
+LDmult:
+    a = a << 1;
+    x = a;
+    a = WIDTHS[x];		// The TIA's NUSIZ registers make
+    NUSIZ0 = a;			// The TIA's NUSIZ registers make
+    a = (&WIDTHS[1] as *u8)[x];	// three planes as it is for one
+    NUSIZ1 = a;			// freakin' huge bomber.
+    a = GAMVAR;
+    a = a & 0xc0;
+    a = a >>> 1;
+    a = a >>> 1;
+    a = a >>> 1;
+    a = a >>> 1;		// Our hardware is now in bits 3 and 2.
+    y = a;			// Of the Y-register.
+    
+    /*
+    ; Of the Y-register.
+    ;
+    ; Render joysticks immobile if game not in play, and
+    ; select player and field colors according to Y
+    ;
+    */
+    
+    a = GameOn;			// Enable joysticks via bit 1
+    SWCHB = a;			// of $FF game-on value
+    a = a ^ 0xFF;		// now $FF=no game, $00=game on
+    a = a & GameTimer;		// Cycle tank colors only when NO
+    TEMP1 = a;			// game on (attract mode)
+    x = 0xFF;
+    a = SWCHB;
+    a = a & 0x08;		// Color/BW switch
+    goto LDcolor if !zero;	// Branch if set to Color
+    y = 0x10;			// Force B&W colors
+    x = 0x0f;
+    
+LDcolor:
+    TEMP = x;
+    x = 0x03;			// We loop 3 times to get 4 values
+LDcol0:
+    a = ColorTbl[y];
+    a = a ^ TEMP1;		// Apply color-cycle if no game on
+    a = a & TEMP;		// Apply B&W massage 
+    (&COLUP0 as *u8)[x] = a;	// Color the real item.
+    (&Color0 as *u8)[x] = a;	// Color the virtual item.  This can
+    				// be changd, e.g. invisible tanks
+    (&XColor0 as *u8)[x] = a;	// Color the deep virtual item. This
+    				// is used to restore ColorX.
+    
+    y++;
+    x--;
+    goto LDcol0 if !negative;
   }
   
-  func CHKSW() {
-    
-  }
-
-  func COLIS() {
-    
-  }
   
-  func STPMPL() {
-    
-  }
-  
-  func ROT() {
-
-  }
-  
-  func SCROT() {
-    
-  }
-  
-  
-  func MLOOP() {
-    
-  }
 //in rom @ 0xf19a {
-  func ClrGam() {
-    x = 0xdf;
-    ClearMem();
-    a = 0xff;
-    SelDbnce = a;
-    y = BINvar;
+//  func ClrGam() {
+//    x = 0xdf;
+//    ClearMem();
+//    a = 0xff;
+//    SelDbnce = a;
+//    y = BINvar;
 //    a = 
-  }
-}
+//  }
+//}
 
-in rom @ 0xf5bd {
+//in rom @ 0xf7bd {
   /*
   ;
   ; ------------------------------------------------------------
@@ -664,25 +1627,16 @@ in rom @ 0xf5bd {
     } while !zero;
     
   }  
-}
+//}
 
-in rom @ 0xF700 {
-  const VARMAP : [u8] = [
-    0b00101000,
-    0b00001000,
-    0b00100000,
-    0b00000000,
-    0b01001000, // TANK PONG
-    0b01000000,
-    0b01011000,
-    0b00100101, // INVISIBLE TANK
-    0b00101001,
-    0b01001001, // INVISBLE TANK-PONG
-    0b01010101,
-    0b01011001,
-    0b10101000, // BIPLANE
-    0xFF // END
-    ];
+//in rom @ 0xF720 {
+
+  /*
+  const Xoffsets : [u8] = [
+  0xf8,0xf7, 0xf6, 0x06  
+    
+  ];
+*/
   /*
 VARMAP:
   .BYTE  $24 ;Game 1:  0010 0100  TANK
@@ -720,7 +1674,19 @@ VARMAP:
 }
 
 // setup vectors
-in rom @ 0xFFFA {
-  const : [u16] = [(0x0 as u16), (&START as u16), 0x0];
+in rom @ 0xF7FC {
+  const : [u16] = [(&START as u16)];
+}
+
+// setup vectors
+in rom @ 0xFFFC {
+  const : [u16] = [(&START as u16)];
+}
+
+in rom @ 0xF7FE {
+  const AudPitch : [u8] = [
+    0x0f, 0x11   
+  ];
+//	.BYTE  $0F, $11         ; Motor sound pitch table by player
 }
 

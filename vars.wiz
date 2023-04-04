@@ -3,37 +3,86 @@ import "banks";
 let ROMADDR = 0xF000;
 
 in ram @ 0x80 {
+  // var oram @ 0x00 : [u8; 0x7f];
+
+  var BINvar @ 0x80 : u8;
   var BCDvar @ 0x81 : u8;
+  var PF_PONG @ 0x82 : u8;
+
+  var GUIDED @ 0x83 : u8;
+  var BILLIARD @ 0x84 : u8;
+  
   var GAMSHP @ 0x85 : u8;
   var CLOCK @ 0x86 : u8;
-  var GameOn @ 0x88 : u8;
-  var SelDbnce @ 0x88 : u8;
-//  var ram_88 @ 0x88 : u8;
-  var SCORE @ 0xA1 : u8;
-  var ram_A2 @ 0xA2 : [u8; 8];
-  var TankY1 @ 0xA5 : u8;
-  var oram @ 0x00 : [u8; 0x7f];
-  var PF_PONG @ 0x82 : u8;
   var SHOWSCR @ 0x87 : u8;
-  var BINvar @ 0x89 : u8;
+  
+  var GameOn @ 0x88 : u8;
+  var SelDbnce @ 0x89 : u8;
+//  var ram_88 @ 0x88 : u8;
+  var StirTimer @ 0x8A : u8;
+  var Vtemp @ 0x8B : [u8;2];
+  var FwdTimer @ 0x8D : [u8; 2];
+  
+  var LastTurn @ 0x91 : [u8;2];
+  var TurnTimer @ 0x93 : [u8;2];
+  
+  var DIRECTN @ 0x95 : u8;
+  var DIRECTNa @ 0x95 : [u8;2];
+  
+  var DIRECTN1 @ 0x96 : u8;
+  var DIRECTN2a @ 0x97 : [u8;2];
+
+  var MisLife0 @ 0x99 : u8;
+  var MisLife @ 0x99 : [u8;2];
+  var BounceCount @ 0x9b : [u8;2];
+
+  var MxPFcount @ 0x9d : [u8;2];
+  
+  var AltSnd @ 0x9F : [u8;2];
+  
+  var SCORE @ 0xA1 : u8;
+  var SCOREa @ 0xA1 : [u8; 10];
+  var ram_A2 @ 0xA2 : [u8; 8];
+  
+  
   var GAMVAR @ 0xA3 : u8;
   var TankY0 @ 0xA4 : u8;
+  var TankY1 @ 0xA5 : u8;
   var MissileY0 @ 0xA6 : u8;
   var MissileY1 @ 0xA7 : u8;
+  var MVadjA @ 0xA8 : [u8;2];
+  var MVadjB @ 0xAA : [u8;2];
+  var MPace @ 0xAC : [u8;2];
+  
+  var XOFFS @ 0xB0 : u8;
+  
+  var XoffBase @ 0xB1 : u8;
+  var OldMisDir @ 0xB2 : [u8;2];
   var ScanLine @ 0xb4 : u8;
   var LORES @ 0xb5 : u16;
+  var LORES8 @ 0xB5 : u8;
   var LORES2 @ 0xb7 : u16;
   var LORES4 @ 0xb9 : u16;
+  var SHAPES @ 0xbb : u16;
   var HIRES @ 0xbd : [u8; 10];
+  var TEMP1 @ 0xD1 : u8;
+  var TEMP @ 0xD2 : u8;
   var TMPSTK @ 0xd3 : u8;
+  var AD4 @ 0xd4 : u8;
+  var DIFSWCH @ 0xd5 : u8;
   var Color0 @ 0xd6 : u8;
   var Color1 @ 0xd7 : u8;
+  var XColor0 @ 0xd8 : [u8;2];
+  var ColorBK @ 0xdb : u8;
+  
   var KLskip @ 0xdc : u8;
   var GameTimer @ 0xdd : u8;
   var NUMG0 @ 0xde : u8;
   var NUMG1 @ 0xdf : u8;
   var pSCROFF @ 0xe0 : u8;
   var SCROFF @ 0xe0 : [u8; 4];
+  
+  var COLcount @ 0xe4 : [u8;2];
 //  var NUMBERS @ 
   var ram_80 @ 0xA2 : [u8; 10];
 }
