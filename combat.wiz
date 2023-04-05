@@ -1651,18 +1651,11 @@ LDcol0:
 
 // setup vectors
 in rom @ 0xF7FC {
-  const : [u16] = [(&START as u16)];
-}
+  const : [u16] = [(&START as u16)]; // reset vector
 
-// setup vectors
-in rom @ 0xFFFC {
-  const : [u16] = [(&START as u16)];
-}
-
-in rom @ 0xF7FE {
   const AudPitch : [u8] = [
-    0x0f, 0x11   
+    0x0f, 0x11 		// Motor sound pitch table by player
   ];
-//	.BYTE  $0F, $11         ; Motor sound pitch table by player
+//	.BYTE  $0F, $11         ; 
 }
 
