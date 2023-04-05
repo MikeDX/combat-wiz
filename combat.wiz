@@ -89,6 +89,7 @@ in rom @ ROMADDR {
   START:
   // Disable interrupts
   nointerrupt = true;  
+  
   // Disable decimal mode
   decimal = false;       
   
@@ -131,22 +132,26 @@ in rom @ ROMADDR {
   ;
 */
   func VCNTRL() {
-    CLOCK++;
-    HMCLR = a;
-    a = 2;
-    WSYNC = a;
-    VBLANK = a;
-    WSYNC = a;
-    WSYNC = a;
-    WSYNC = a;
-    VSYNC = a;
+    CLOCK++;		// Master frame count timer
+    HMCLR = a;		// Clear horizontal move registers.
+    a = 2;		// Get this ready...
+    WSYNC = a;		// for start of next line...
+    VBLANK = a;		// Start vertical blank.
+
+    WSYNC = a;		// and do three lines
     WSYNC = a;
     WSYNC = a;
-    a = 0;
+    
+    VSYNC = a;		// Now start vertical sync
+    
+    WSYNC = a;		// and do three lines
     WSYNC = a;
-    VSYNC = a;
-    a = 43;
-    TIM64T = a;
+    a = 0;		// get this ready
+    WSYNC = a;
+    
+    VSYNC = a;		// End of vertical sync pulse
+    a = 43;		// And set VBLANK timer
+    TIM64T = a;		// with 64 clock interval.
   }
   /*
   ;
@@ -163,6 +168,7 @@ in rom @ ROMADDR {
     ScanLine = a; // We're assuming scanline $20.
     WSYNC = a;
     HMOVE = a;    // Move sprites horizontally.
+    
     do {
       a = INTIM;
     } while !zero;
@@ -173,102 +179,112 @@ in rom @ ROMADDR {
     TMPSTK = x = s;  	// Save stack pointer
     CTRLPF = a = 0x02;  // Double, instead of reflect.
     x = KLskip;
+    
     // Skip a few scanlines...
     do {
       WSYNC = a;
       x--;
     } while !zero;
+
     a = KLskip;
     cmp(a,0x0e);  // "No Score" value of KLskip
-    goto Vmain if zero;
-  /*
-  ;
-  ; KLskip is set as such so that when the score is
-  ; to be displayed, it waits for just the right time
-  ; to start drawing the score, but if the score is
-  ; not to be displayed, as when the score flashes
-  ; signifying "time's almost up", it waits for just
-  ; the right time to start drawing the rest of the
-  ; screen.
-  ;
-  ; Draw the score:
-  ;
-  */
-    x = 0x05;	// Score is five bytes high.
-    a = 0x00;	// Clear number graphics.
-    NUMG0 = a;  // They won't be calculated yet,
-    NUMG1 = a;  // but first time through the loop
-                // the game will try to draw with
-       		// them anyway.
+    
+    if (!zero) {
+      //    goto Vmain if zero;
 
-    do { // VSCOR;
-      WSYNC = a; 	// Start on new scanline
-      a = NUMG0; 	// Take last scanline's left score,
-      PF1 = a;	// and recycle it,
-    
-    /*
-    ;
-    ; Here, we begin drawing the next scanline's
-    ; left score, as the electron beam moves towards
-    ; the right score's position in this scanline.
-    ;
-    */
-    
-      y = SCROFF[2];
-      a = NUMBERS[y];	// Get left digit.
-      a = a & 0xf0;
-      NUMG0 = a;
-      y = SCROFF[0];
-      a = NUMBERS[y];	// Get right digit.
-      a = a & 0x0f;
-      a = a | NUMG0;
-      NUMG0 = a;	// Left score is ready to ship.
-      a = NUMG1;	// Take last scanline's right score,
-      PF1 = a;		// and recycle it.
-      y = SCROFF[3];
-      a = NUMBERS[y];	// Left digit...
-      a = a & 0xf0;
-      NUMG1 = a;
-      y = SCROFF[1];
-      a = NUMBERS[y];	// right digit...
-      a = a & SHOWSCR;
       /*
       ;
-      ; Now, we use our fresh, new score graphics in this next scanline.
+      ; KLskip is set as such so that when the score is
+      ; to be displayed, it waits for just the right time
+      ; to start drawing the score, but if the score is
+      ; not to be displayed, as when the score flashes
+      ; signifying "time's almost up", it waits for just
+      ; the right time to start drawing the rest of the
+      ; screen.
+      ;
+      ; Draw the score:
       ;
       */
-    
-      WSYNC = a;	// *COUNT*
-      a = a | NUMG1;	// Finish calculating     (0) +3
-      NUMG1 = a;	// right score.           (3) +3
-      a = NUMG0;	// 			  (6) +3
-      PF1 = a;		//			  *9* +3    
-      /*
-      ;
-      ; We use this time to check whether we're at the end of our loop.
-      ;
-      */
-      x--;		//			  (12)+2
-      break if negative;	// (14)+2 No Branch
-      /*
-      ;
-      ; If so, we're out of here.  Don't worry, the score will be
-      ; cleared immediately, so nobody will know that we've gone
-      ; past five bytes and are displaying garbage.
-      ;  
-      */
-      SCROFF[0]++;	// ; (16)+5
-      SCROFF[2]++;	// Get ready to draw the next
-      SCROFF[1]++;	// line of the byte.
-      SCROFF[3]++;
-      a = NUMG1;
-      PF1 = a;		// Right score is in place.
-    } while true;	// Go to next scanline,
+
+      x = 0x05;	// Score is five bytes high.
+      a = 0x00;	// Clear number graphics.
+      NUMG0 = a;  // They won't be calculated yet,
+      NUMG1 = a;  // but first time through the loop
+      // the game will try to draw with
+      // them anyway.
+
+      do { // VSCOR;
+        WSYNC = a; 	// Start on new scanline
+        a = NUMG0; 	// Take last scanline's left score,
+        PF1 = a;	// and recycle it,
+
+        /*
+        ;
+        ; Here, we begin drawing the next scanline's
+        ; left score, as the electron beam moves towards
+        ; the right score's position in this scanline.
+        ;
+        */
+
+        y = SCROFF[2];
+        a = NUMBERS[y];	// Get left digit.
+        a = a & 0xf0;
+        NUMG0 = a;
+        y = SCROFF[0];
+        a = NUMBERS[y];	// Get right digit.
+        a = a & 0x0f;
+        a = a | NUMG0;
+        NUMG0 = a;	// Left score is ready to ship.
+        a = NUMG1;	// Take last scanline's right score,
+        PF1 = a;		// and recycle it.
+        y = SCROFF[3];
+        a = NUMBERS[y];	// Left digit...
+        a = a & 0xf0;
+        NUMG1 = a;
+        y = SCROFF[1];
+        a = NUMBERS[y];	// right digit...
+        a = a & SHOWSCR;
+
+        /*
+        ;
+        ; Now, we use our fresh, new score graphics in this next scanline.
+        ;
+        */
+        WSYNC = a;	// *COUNT*
+        a = a | NUMG1;	// Finish calculating     (0) +3
+        NUMG1 = a;	// right score.           (3) +3
+        a = NUMG0;	// 			  (6) +3
+        PF1 = a;		//			  *9* +3    
+
+        /*
+        ;
+        ; We use this time to check whether we're at the end of our loop.
+        ;
+        */
+        x--;		//			  (12)+2
+        break if negative;	// (14)+2 No Branch
+        /*
+        ;
+        ; If so, we're out of here.  Don't worry, the score will be
+        ; cleared immediately, so nobody will know that we've gone
+        ; past five bytes and are displaying garbage.
+        ;  
+        */
+        SCROFF[0]++;	// ; (16)+5
+        SCROFF[2]++;	// Get ready to draw the next
+        SCROFF[1]++;	// line of the byte.
+        SCROFF[3]++;
+        a = NUMG1;
+        PF1 = a;		// Right score is in place.
+      } while true;	// Go to next scanline,
+    }
+
     /*
     ; Main Kernal Display loop for the game itself
-    ;*/
-    
-Vmain:
+    ;
+    */
+
+//Vmain:
     a = 0;		// Inner Display Loop
     PF1 = a;		// Clear the score.
     WSYNC = a;
@@ -278,6 +294,7 @@ Vmain:
     COLUP0 = a;		// How often must THIS be done?
     a = Color1;
     COLUP1 = a;
+    
 VField:
     x = 0x1e;		// Very Sneaky -
     s = x;		// Set stack to missile registers
@@ -311,6 +328,7 @@ VdoTank:
 VnoTank:
     WSYNC = a;			// ----END OF ONE LINE----
     GRP0 = a;			// Just for player 0.
+    
     /*
     ;
     ; The infamous Combat Stack Trick:
@@ -320,7 +338,6 @@ VnoTank:
     ; bit of the P register is the same at the bit ENAM0/1
     ; looks at.
     ;*/
-    
     a = MissileY1;
     a = a ^ ScanLine;
     a = a & 0xFE;
@@ -537,12 +554,13 @@ SelGO:
     }
 
 }
-/*
-;
-; Branches here when game is started, too.
-;
-*/
-#[fallthrough] func ResetField() {
+
+  /*
+  ;
+  ; Branches here when game is started, too.
+  ;
+  */
+  #[fallthrough] func ResetField() {
     InitPF();
     /*
     ;
@@ -551,20 +569,21 @@ SelGO:
     ; and the position of the right player is irrelevant.
     ;
     */
-    
+
     a = 50;
     TankY1 = a;
     a = 134;
     TankY0 = a;
     bit(GAMVAR);		// Check to see if it is a tank game.
+
     goto CS_RTS if negative;	// Nope, bail.
-    
-	                        // It is a tank game, so
+
+    // It is a tank game, so
     TankY1 = a;			// Right tank has same Y value,
     RESP1 = a;			// and tank is at opposite side.
     a = 0x08;
-    
-//    (((&DIRECTN as u8) + 2) as *u8)[0] = a;		
+
+    //    (((&DIRECTN as u8) + 2) as *u8)[0] = a;		
     DIRECTN1 = a;		// // and right player faces left.
     a = 0x20;
     HMP0 = a;
@@ -572,8 +591,8 @@ SelGO:
     WSYNC = a;
     HMOVE = a;
 
-}
-  
+  }
+
   func CS_RTS() {		// end function marker
     
   }
@@ -608,7 +627,7 @@ SelGO:
       carry = false;
       a = a +#TEMP;	// + original *1 = original * 5
 
-        SCROFF[x] = a;
+      SCROFF[x] = a;
       a = SCOREa[x];
       a = a & 0xf0;	// Repeat for hi nibble. Starts *16
       a = a >>> 1;	// *8
@@ -619,7 +638,7 @@ SelGO:
       carry = false;
       a = a +#TEMP;	// + (*4) = original *5
 
-        ((&SCROFF as u8 +2) as *u8)[x] = a;
+      ((&SCROFF as u8 +2) as *u8)[x] = a;
 
       x--;		// Decrement & repeat once for P0
     } while !negative;
@@ -647,43 +666,49 @@ STPMG:
     x--;
     STPM();			// Now X=2, M0
     x--;			// Now X=1, P1; we will DEX and loop
-STPnext:
-    a = FwdTimer[x];		// back to run this code block again
-    a = a & 0x08;		// with X=0 for P0.
-    a = a >>> 1;		// (to 4) This bit on means FwdTimer has
-    a = a >>> 1;		// (to 2) run half of the FwdTimer period
-    				// ($F0 to $FF and roll)
-	                        // This bit will index MVadjA or MVadjB
-    TEMP1 = x;			// Player # --> TEMP1
-    carry = false;
-    a = a +#TEMP1;
-    y = a ;			// Player # + FwdTimer half done*2 --> Y
-    a = MVadjA[y];		// And retrieve MVadjA or MVadjB via Y
     
-    carry = true;		// assume bit 7 on
-    goto STP7set if negative;	// OK, it is
-    carry = false;		// whoops, backtrack
-STP7set:
-    a = a <<<<# 1;		// carry=bit 7, now ROL; net effect is to
-    				// rotate left inserting duplicate MSB
-    MVadjA[y] = a;		// instead of original Carry, and save it
-    goto STPnoV if !carry;	// Skip next code block if bit wasn't 1
+    do {
+      //STPnext:
+      a = FwdTimer[x];		// back to run this code block again
+      a = a & 0x08;		// with X=0 for P0.
+      a = a >>> 1;		// (to 4) This bit on means FwdTimer has
+      a = a >>> 1;		// (to 2) run half of the FwdTimer period
+      // ($F0 to $FF and roll)
+      // This bit will index MVadjA or MVadjB
+      TEMP1 = x;			// Player # --> TEMP1
+      carry = false;
+      a = a +#TEMP1;
+        y = a ;			// Player # + FwdTimer half done*2 --> Y
+      a = MVadjA[y];		// And retrieve MVadjA or MVadjB via Y
 
-    a = MPace[x];		// Tweak velocity by changing XoffBase
-    a = a & 0x01;		// but only every other time we get here
-    a = a << 1;	
-    a = a << 1;	
-    a = a << 1;	
-    a = a << 1;	
+      carry = true;		// assume bit 7 on
+      if (!negative) {
+        //    goto STP7set if negative;	// OK, it is
+        carry = false;		// whoops, backtrack
+      }
+      STP7set:
+      a = a <<<<# 1;		// carry=bit 7, now ROL; net effect is to
+      // rotate left inserting duplicate MSB
+      MVadjA[y] = a;		// instead of original Carry, and save it
+      if (carry ) {
+        //    goto STPnoV if !carry;	// Skip next code block if bit wasn't 1
 
-    XoffBase = a;		//  XoffBase=$0 or $10 via (MPace & 1) << 4
-    STPM();			//  Note this is where we INC MPace
-    
-STPnoV:
-    
-    x--;			// Move to _previous_ player.
-    goto STPnext if zero;	// Stop if about to do player -1.  :)
-    
+        a = MPace[x];		// Tweak velocity by changing XoffBase
+        a = a & 0x01;		// but only every other time we get here
+        a = a << 1;	
+        a = a << 1;	
+        a = a << 1;	
+        a = a << 1;	
+
+        XoffBase = a;		//  XoffBase=$0 or $10 via (MPace & 1) << 4
+        STPM();			//  Note this is where we INC MPace
+      }
+      //STPnoV:
+
+      x--;			// Move to _previous_ player.
+    } while zero;
+    //    goto STPnext if zero;	// Stop if about to do player -1.  :)
+
   }
   
   /*
@@ -696,28 +721,36 @@ STPnoV:
   ; utilize it.
   ;
   */
-   #[fallthrough] func STPM() {
+  #[fallthrough] func STPM() {
     MPace[x]++;
     a = DIRECTNa[x];
     a = a & 0x0f;
     carry = false;
     a = a +#XoffBase;		// Pick table offset by game condition
-    y = a;
+      y = a;
     a = Xoffsets[y];		// X-offset by orientation.
     XOFFS = a;			// Store the default HMPV code.
     bit(PF_PONG);
-    goto STPgo if overflow;	// Branch if (fast) Pong missiles
-    a = (&DIRECTN as *u8)[x];
-    carry = true;
-    a = a -#0x02;		// If motion is near X or Y axis,
-    a = a & 0x03;
-    goto STPgo if !zero;	// don't apply delay
-    a = MPace[x];		// but if very diagonal, slow a bit by
-    a = a & 0x03;		// moving only 3 of every 4 frames
-    goto STPgo if !zero;
-    a = 0x08;			// HMPV for no motion X or Y
-    XOFFS = a;			// no motion this frame
-STPgo:
+    
+    if (!overflow) {
+      //    goto STPgo if overflow;	// Branch if (fast) Pong missiles
+      a = (&DIRECTN as *u8)[x];
+      carry = true;
+      a = a -#0x02;		// If motion is near X or Y axis,
+      a = a & 0x03;
+      
+      if (zero) {
+//      goto STPgo if !zero;	// don't apply delay
+        a = MPace[x];		// but if very diagonal, slow a bit by
+        a = a & 0x03;		// moving only 3 of every 4 frames
+        if (zero) {
+          //    goto STPgo if !zero;
+          a = 0x08;			// HMPV for no motion X or Y
+          XOFFS = a;			// no motion this frame
+        }
+      }
+    }
+//STPgo:
     a = XOFFS;
   }
   /*
@@ -948,7 +981,7 @@ NoTurn:
     
 TurnReset:			// We do turn-wait counts even when
     LastTurn[x] = a;		// we aren't turning, for consistency
-    a = 0x0f;			// Initial countdown value to delay
+    a = TURNSPEED;			// Initial countdown value to delay
     TurnTimer[x] = a;		// 22.5-degree turns
     
     a = TEMP1;			// Retrieve rotation code
@@ -993,7 +1026,7 @@ FwdNorm:
     y++;			// Why not LDA MVtable+1,Y?
     a = MVtable[y];
     MVadjB[x] = a;		// odd V+MVtable goes to MVadjB+X
-    a = 0xf0;			// Initialize FwdTimer
+    a = FWDSPEED;			// Initialize FwdTimer
     FwdTimer[x] = a;		// (Counts up to $00 before fwd
     				//motion change is final)
     
@@ -1103,7 +1136,7 @@ MisDSkp:
     ;
     */
 Launch:
-    a = 0x3f;			// Init MisLife to $3F
+    a = 0x3F;			// Init MisLife to $3F
     MisLife[x] = a;
     carry = true;
     a = (&TankY0 as *u8)[x];	// Copy Y-position... Tank Y-position points
@@ -1483,7 +1516,7 @@ IFgo:
 IFskip:
     a = GAMVAR;			// Next test..
     a = a << 1;
-    a = a << 1;		// Do this again....
+    a = a << 1;			// Do this again....
     bit(GAMVAR);
     goto IFnoPlane if negative;	// Branch if a plane game.
     WSYNC = a;			// This MUST be something that dropped
@@ -1589,19 +1622,6 @@ LDcol0:
     goto LDcol0 if !negative;
   }
   
-  
-//in rom @ 0xf19a {
-//  func ClrGam() {
-//    x = 0xdf;
-//    ClearMem();
-//    a = 0xff;
-//    SelDbnce = a;
-//    y = BINvar;
-//    a = 
-//  }
-//}
-
-//in rom @ 0xf7bd {
   /*
   ;
   ; ------------------------------------------------------------
@@ -1627,50 +1647,6 @@ LDcol0:
     } while !zero;
     
   }  
-//}
-
-//in rom @ 0xF720 {
-
-  /*
-  const Xoffsets : [u8] = [
-  0xf8,0xf7, 0xf6, 0x06  
-    
-  ];
-*/
-  /*
-VARMAP:
-  .BYTE  $24 ;Game 1:  0010 0100  TANK
-	.BYTE  $28 ;Game 2:  0010 1000
-	.BYTE  $08 ;Game 3:  0000 1000
-	.BYTE  $20 ;Game 4:  0010 0000
-	.BYTE  $00 ;Game 5:  0000 0000
-	.BYTE  $48 ;Game 6:  0100 1000  TANK PONG
-	.BYTE  $40 ;Game 7:  0100 0000
-	.BYTE  $54 ;Game 8:  0101 0100
-	.BYTE  $58 ;Game 9:  0101 1000
-	.BYTE  $25 ;Game 10: 0010 0101  INVISIBLE TANK
-	.BYTE  $29 ;Game 11: 0010 1001
-	.BYTE  $49 ;Game 12: 0100 1001  INVISIBLE TANK-PONG
-	.BYTE  $55 ;Game 13: 0101 0101
-	.BYTE  $59 ;Game 14: 0101 1001
-	.BYTE  $A8 ;Game 15: 1010 1000  BIPLANE
-	.BYTE  $88 ;Game 16: 1000 1000
-	.BYTE  $98 ;Game 17: 1001 1000
-	.BYTE  $90 ;Game 18: 1001 0000
-	.BYTE  $A1 ;Game 19: 1010 0001
-	.BYTE  $83 ;Game 20: 1000 0011
-	.BYTE  $E8 ;Game 21: 1110 1000  JET FIGHTER
-	.BYTE  $C8 ;Game 22: 1100 1000
-	.BYTE  $E0 ;Game 23: 1110 0000
-	.BYTE  $C0 ;Game 24: 1100 0000
-	.BYTE  $E9 ;Game 25: 1110 1001
-	.BYTE  $E2 ;Game 26: 1110 0010
-	.BYTE  $C1 ;Game 27: 1100 0001
-	;
-	; $FF to signify end of game variations.
-	;
-	.BYTE  $FF
-        */
 }
 
 // setup vectors

@@ -2,6 +2,12 @@ import "banks";
 
 let ROMADDR = 0xF000;
 
+//let TURNSPEED = 0x0f;
+let TURNSPEED = 0x0f;
+
+//let FWDSPEED  = 0xf0;
+let FWDSPEED  = 0xf0;
+
 in ram @ 0x80 {
   // var oram @ 0x00 : [u8; 0x7f];
 

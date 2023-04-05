@@ -203,6 +203,7 @@ in rom @ 0xF5C5     {
     
   ];
   
+  
   /*
   ;
   ;
@@ -217,8 +218,6 @@ in rom @ 0xF5C5     {
   ;
   ;         Tanks Biplane, Jet Fighter
   */
-
-  
   const SNDV : [u8] = [
     0x08, 0x02, 0x02, // sound volumes
   ];
@@ -244,6 +243,7 @@ in rom @ 0xF5C5     {
     0x0C, 0x07, 0x07
   ];
   
+  
   /*
   ;
   ; Player widths for various plane games.
@@ -251,14 +251,15 @@ in rom @ 0xF5C5     {
   ; register, the difference between a 1 vs. 1 game
   ; and a Bomber vs. 3 game is contained in just
   ; two bytes.
-  ;*/
-
+  ;
+  */
   const WIDTHS : [u8] = [
     0x00, 0x00, // 1 vs 1
     0x01, 0x01, // 2 vs 2
     0x00, 0x03, // 1 vs 3
     0x27, 0x03  // Bomber vs 3
   ];
+  
   
   /*  
   ; Table of color combinations.  Each 4 byte entry specifies
@@ -269,7 +270,6 @@ in rom @ 0xF5C5     {
   ; forced to +$10 if B&W switch selected.
   ;
   */
-
   const ColorTbl : [u8] = [
     0xEA, 0x3C, 0x82, 0x44, // 00 = Regular Tanks
     0x32, 0x2C, 0x8A, 0xDA, // 01 = Tank Pong
@@ -280,14 +280,17 @@ in rom @ 0xF5C5     {
 
   
   const PF0_0 : [u8] = [
+    /*{w:8,h:12,bpp:1,brev:1,count: 1}*/   
     0xF0, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10
   ];
   
   const PF1_0 : [u8] = [
+    /*{w:8,h:12,bpp:1,brev:1,count: 1}*/   
     0xFF, 0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x60, 0x20, 0x20, 0x23
   ];
   
   const PF2_0 : [u8] = [
+    /*{w:8,h:12,bpp:1,brev:1,count: 1}*/
     0xFF, 0x80, 0x80, 0x00, 0x00, 0x00, 0x1C, 0x04, 0x00, 0x00, 0x00, 0x00
   ];
   const PF1_1 : [u8] = [
@@ -297,12 +300,15 @@ in rom @ 0xF5C5     {
     0x00, 0x00, 0x00
   ];
   const PF1_3 : [u8] = [
+    /*{w:8,h:13,bpp:1,brev:1,count: 1}*/
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x1F, 0x3F, 0x7F
   ];
   const PF1_2 : [u8] = [
+    /*{w:8,h:12,bpp:1,brev:1,count: 1}*/
     0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x20, 0x21
   ];
   const PF2_2 : [u8] = [
+    /*{w:8,h:12,bpp:1,brev:1,count: 1}*/
     0xFF, 0x00, 0x00, 0x00, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x00, 0x07,
   ];
 
@@ -311,17 +317,19 @@ in rom @ 0xF5C5     {
     <:(&TankShape),
     <:(&PlaneShape),
     <:(&JetShape),
-//    <:(&PlaneShape),
-
   ];
   const SPRHI : [u8] = [
     >:(&TankShape),
     >:(&PlaneShape),
     >:(&JetShape),
-
   ];
 
-  
+  /*
+  ; Playfield address data.  Kernal timing requires that
+  ; these addresses point 4 bytes before the real start
+  ; of data.
+  ;
+  */  
   const PLFPNT : [u8] = [ 
     <:(&PF0_0[-4] as u8), <:(&PF0_0[-4] as u8),
     <:(&PF0_0[-4] as u8), <:(&PF0_3[-4] as u8),
@@ -329,17 +337,33 @@ in rom @ 0xF5C5     {
     <:(&PF1_2[-4] as u8), <:(&PF1_3[-4] as u8),
     <:(&PF2_0[-4] as u8), <:(&PF1_1[-4] as u8),
     <:(&PF2_2[-4] as u8), <:(&PF1_3[-4] as u8),
-    
-    /*
-    PLFPNT	.BYTE  #<(PF0_0-4) ,#<(PF0_0-4)
-	.BYTE  #<(PF0_0-4) ,#<(PF0_3-4)   ;PF0
-	.BYTE  #<(PF1_0-4) ,#<(PF1_1-4)
-	.BYTE  #<(PF1_2-4) ,#<(PF1_3-4)   ;PF1
-	.BYTE  #<(PF2_0-4) ,#<(PF1_1-4)
-	.BYTE  #<(PF2_2-4) ,#<(PF1_3-4)   ;PF2
-        */
     ];
   
+  /*
+  ; Game features, indexed by game number-1.
+  ;
+  ; bits   
+  ;   1,0:      TANKS           PLANES
+  ;        X0 = Normal
+  ;        X1 = Invisible
+  ;        00 =                 1 vs. 1
+  ;        01 =                 2 vs. 2
+  ;        10 =                 3 vs. 1
+  ;        11 =                 3 vs. Giant
+  ;   3,2: 01 = No maze
+  ;        10 = Simple maze
+  ;        00 = Complex maze
+  ;        1X =                 Clouds
+  ;        0X =                 No clouds
+  ;     4:  0 = Direct Hit      Normal Gun
+  ;         1 = Billiard Hit    Machine Gun
+  ;     5:  0 =     Straight Missiles
+  ;         1 =     Guided Missiles
+  ;     6:  0 = Tanks           Jets
+  ;         1 = Tank Pong       Biplanes
+  ;     7:  0 =     Tank Game
+  ;         1 =     Plane Game
+  */
     const VARMAP : [u8] = [
       0b00100100,
       0b00101000,
@@ -370,26 +394,4 @@ in rom @ 0xF5C5     {
       0b11000001,
       0xFF // END
     ];
-/*  MVtable	.BYTE  $00 ,$00
-	.BYTE  $80 ,$80
-	.BYTE  $84 ,$20
-	.BYTE  $88 ,$88
-	.BYTE  $92 ,$48
-	.BYTE  $A4 ,$A4
-	.BYTE  $A9 ,$52
-	.BYTE  $AA ,$AA
-	.BYTE  $D5 ,$AA
-	.BYTE  $DA ,$DA
-	.BYTE  $DB ,$6D
-	.BYTE  $EE ,$EE
-        */
-// CTRLTBL .BYTE  $00 ,$10 ,$00 ,$FF
-//	.BYTE  $01 ,$11 ,$01 ,$FF ;LEFT
-//	.BYTE  $0F ,$1F ,$0F      ;RIGHT
-
-//    .BYTE  $00 ,$0B ,$16
-  
-  
-
-  
 }
