@@ -1,5 +1,9 @@
 import "banks";
 
+let PAL = false; //	Build a PAL rom
+let ORIG = false; //	Build the rom from the 32in1 cart
+
+
 let ROMADDR = 0xF000;
 
 //let TURNSPEED = 0x0f;

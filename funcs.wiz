@@ -1,0 +1,31 @@
+import "vcs";
+
+import "vars";
+
+
+inline func inline_vcntrl() {
+    CLOCK++;		// Master frame count timer
+    HMCLR = a;		// Clear horizontal move registers.
+    a = 2;		// Get this ready...
+    WSYNC = a;		// for start of next line...
+    VBLANK = a;		// Start vertical blank.
+
+    WSYNC = a;		// and do three lines
+    WSYNC = a;
+    WSYNC = a;
+    
+    VSYNC = a;		// Now start vertical sync
+    
+    WSYNC = a;		// and do three lines
+    WSYNC = a;
+    a = 0;		// get this ready
+    WSYNC = a;
+    
+    VSYNC = a;		// End of vertical sync pulse
+    if(PAL) {
+      a = 0x2e;		// And set VBLANK timer
+    } else {
+      a = 0x2b;
+    }
+    TIM64T = a;		// with 64 clock interval.
+}

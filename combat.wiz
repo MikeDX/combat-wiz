@@ -85,6 +85,8 @@ import "vars";
 import "gfx";
 
 
+import "funcs";
+
 in rom @ ROMADDR {
   START:
   // Disable interrupts
@@ -104,22 +106,35 @@ in rom @ ROMADDR {
   SWBCNT = a;
   GameOn = a;
   ClrGam(); // clear game RAM $82-$A2
-
   while true {
-    VCNTRL(); // Generate a VSYNC and begin VBLANK
+    if(ORIG) {
+     inline_vcntrl(); 	// on the 32in1 cart, this is inline.
+      			// see funcs.wiz for the code
+    } else {
+      VCNTRL(); // Generate a VSYNC and begin VBLANK
+    }
 
     // VBLANK logic:
     GSGRCK(); // Parse console switches
-    LDSTEL(); // Load Stella Registers
+    
+    if(!ORIG) {
+      LDSTEL(); // Load Stella Registers
+    }
+    
     CHKSW();  // Check Joystick Switches
     COLIS();  // Check Collision Registers
     STPMPL(); // Setup Player, Missile Motion
     ROT();    // Rotate Sprites
+    
+    // Another change here for the 32in1 cart. This seems to be inline too.
+    
     SCROT();  // Calculate Score Offsets
 
-    VOUT();   // do the Kernal (trashes the stack ptr,
-              // but then restores it because it IS
-              // used when we reiterate this loop)
+//    if(!ORIG) {
+      VOUT();   // do the Kernal (trashes the stack ptr,
+      // but then restores it because it IS
+      // used when we reiterate this loop)
+  //  }
   }
   
   /*
@@ -131,28 +146,16 @@ in rom @ ROMADDR {
   ; Vertical sync, basic frame-start housekeeping
   ;
 */
-  func VCNTRL() {
-    CLOCK++;		// Master frame count timer
-    HMCLR = a;		// Clear horizontal move registers.
-    a = 2;		// Get this ready...
-    WSYNC = a;		// for start of next line...
-    VBLANK = a;		// Start vertical blank.
-
-    WSYNC = a;		// and do three lines
-    WSYNC = a;
-    WSYNC = a;
-    
-    VSYNC = a;		// Now start vertical sync
-    
-    WSYNC = a;		// and do three lines
-    WSYNC = a;
-    a = 0;		// get this ready
-    WSYNC = a;
-    
-    VSYNC = a;		// End of vertical sync pulse
-    a = 43;		// And set VBLANK timer
-    TIM64T = a;		// with 64 clock interval.
+  #[fallthrough] func VCNTRL() {
+    if(! ORIG) {
+      inline_vcntrl();  // See funcs.wiz for code
+      return;
+    }
   }
+//  
+
+  //}
+  
   /*
   ;
   ; ------------------------------------------------------------
@@ -162,13 +165,18 @@ in rom @ ROMADDR {
   ; We start with the score, then we render the playfield, players,
   ; and missiles simultaneously. All in all, an average day for a VCS.
   ;
-*/
+  */
   func VOUT() {
-    a = 0x20;
+    if(PAL) {
+      a = 0x20;
+    } else {
+      a = 0x20;
+    }
     ScanLine = a; // We're assuming scanline $20.
     WSYNC = a;
     HMOVE = a;    // Move sprites horizontally.
     
+    // VOUT_VB
     do {
       a = INTIM;
     } while !zero;
@@ -181,6 +189,7 @@ in rom @ ROMADDR {
     x = KLskip;
     
     // Skip a few scanlines...
+    // Vskip1
     do {
       WSYNC = a;
       x--;
@@ -295,100 +304,106 @@ in rom @ ROMADDR {
     a = Color1;
     COLUP1 = a;
     
-VField:
-    x = 0x1e;		// Very Sneaky -
-    s = x;		// Set stack to missile registers
-    carry = true;
-    
-    /*
+//VField:
+    do {
+      x = 0x1e;		// Very Sneaky -
+      s = x;		// Set stack to missile registers
+      carry = true;
+
+      /*
     ;  
     ; This yields which line of player 0 to draw.
     ;
     */
-    
-    a = TankY0;
-    a = a -#ScanLine;		// A=TankY0-ScanLine
-    a = a & 0xfe;		// Force an even number
-    
-    x = a;			// Only sixteen bytes of 
-    a = a & 0xf0;		// sprite memory, so...
 
-//    if !zero {
-    goto VdoTank if zero;
-    a = 0x00;			// blank the tank.
-    //} 
-  	
-    goto VnoTank if zero;
-//    if !zero {
+      a = TankY0;
+      a = a -#ScanLine;		// A=TankY0-ScanLine
+      a = a & 0xfe;		// Force an even number
+
+      x = a;			// Only sixteen bytes of 
+      a = a & 0xf0;		// sprite memory, so...
+
+      //    if !zero {
+      goto VdoTank if zero;
+      a = 0x00;			// blank the tank.
+      //} 
+
+      goto VnoTank if zero;
+      //    if !zero {
       // doTank
 VdoTank:
       a = HIRES[x];		// Else, load the appropriate byte.
-//    }
+      //    }
 
 VnoTank:
-    WSYNC = a;			// ----END OF ONE LINE----
-    GRP0 = a;			// Just for player 0.
-    
-    /*
-    ;
-    ; The infamous Combat Stack Trick:
-    ;
-    ; Keep in mind that at this point, the stack pointer
-    ; is set to the missile registers, and the "zero-result"
-    ; bit of the P register is the same at the bit ENAM0/1
-    ; looks at.
-    ;*/
-    a = MissileY1;
-    a = a ^ ScanLine;
-    a = a & 0xFE;
-    push(p); 		// This turns the missle 1 on/off
+      WSYNC = a;			// ----END OF ONE LINE----
+      GRP0 = a;			// Just for player 0.
 
-    a = MissileY0;
-    a = a ^ ScanLine;
-    a = a & 0xFE;
-    push(p);		// This turns the missle 0 on/off
-    /*
-    ;
-    ; We've got the missile taken care of.
-    ; Now let's see which line of the playfield to draw.
-    ;*/
-    
-    a = ScanLine;
-    if negative {
-      a = a ^ 0xF8;
-    }
-    cmp(a,0x20);
-    
-    if (carry) { 	// Branch if at bottom.
-      a = a >>> 3;	// Divide by eight,
-      y = a;		// and stow it in the Y-register.
-    }
-    /*
-    ;
-    ; By now, the electron beam is already at the next
-    ; scanline, so we don't have to do a STA WSYNC.
-    ;
-    ; This yields which line of Tank 1 to draw.
-    ;
-    */
-    a = TankY1;
-    carry = true;
-    a = a -#ScanLine;	// A=TankY1 - ScanLine
-    ScanLine++;		// Increment the loop.
-    nop();
-    a = a | 0x01;	// Add bit 0, force odd number.
-    x = a;
-    
-    a = a & 0xF0;	// There are only sixteen bytes of
+      /*
+      ;
+      ; The infamous Combat Stack Trick:
+      ;
+      ; Keep in mind that at this point, the stack pointer
+      ; is set to the missile registers, and the "zero-result"
+      ; bit of the P register is the same at the bit ENAM0/1
+      ; looks at.
+      ;*/
+      a = MissileY1;
+      a = a ^ ScanLine;
+      a = a & 0xFE;
+      push(p); 		// This turns the missle 1 on/off
 
-    goto VdoT1 if zero;	// sprite memory, so...
-//    if (!zero) {
-    a = 0x00;		// If tank is not ready, blank it.
-    
-    
-//    if (!zero) { 
-    goto VnoT1 if zero;
-/*    if (!zero) {
+      a = MissileY0;
+      a = a ^ ScanLine;
+      a = a & 0xFE;
+      push(p);		// This turns the missle 0 on/off
+      /*
+      ;
+      ; We've got the missile taken care of.
+      ; Now let's see which line of the playfield to draw.
+      ;*/
+
+      a = ScanLine;
+      if negative {
+        a = a ^ 0xF8;
+      }
+      // VvRefl
+      if(PAL) {
+        cmp(a,0x08);
+      } else {
+        cmp(a,0x20);
+      }
+      
+      if (carry) { 	// Branch if at bottom.
+        a = a >>> 3;	// Divide by eight,
+        y = a;		// and stow it in the Y-register.
+      }
+      /*
+      ;
+      ; By now, the electron beam is already at the next
+      ; scanline, so we don't have to do a STA WSYNC.
+      ;
+      ; This yields which line of Tank 1 to draw.
+      ;
+      */
+      a = TankY1;
+      carry = true;
+      a = a -#ScanLine;	// A=TankY1 - ScanLine
+      ScanLine++;	// Increment the loop.
+      nop();
+      a = a | 0x01;	// Add bit 0, force odd number.
+      x = a;
+
+      a = a & 0xF0;	// There are only sixteen bytes of
+
+      goto VdoT1 if zero;	// sprite memory, so...
+      //    if (!zero) {
+      a = 0x00;		// If tank is not ready, blank it.
+
+
+      //    if (!zero) { 
+      goto VnoT1 if zero;
+      /*    if (!zero) {
       a = 0x00;
       if (!zero) {
         a = HIRES[x];
@@ -397,24 +412,25 @@ VnoTank:
 
     }
  */  
-    
-VdoT1:
-    a = HIRES[x];	// Else, draw the tank
-VnoT1:
-    bit(PF_PONG);
-    GRP1 = a;
-    goto VnoPF if negative;	// If PF_PONG bit 7 set, don't write PF
-    a = (LORES as *u8)[y];	// (this means game variation has blank
-    PF0 = a;			// background)
-    a = (LORES2 as *u8)[y];
-    PF1 = a;
-    a = (LORES4 as *u8)[y];
-    PF2 = a;
-VnoPF:
-    ScanLine++;			// One more up in the loop.
-    a = ScanLine;
-    a = a ^ 0xEC;
-    goto VField if !zero;
+
+      VdoT1:
+      a = HIRES[x];	// Else, draw the tank
+      VnoT1:
+      bit(PF_PONG);
+      GRP1 = a;
+      goto VnoPF if negative;	// If PF_PONG bit 7 set, don't write PF
+      a = (LORES as *u8)[y];	// (this means game variation has blank
+      PF0 = a;			// background)
+      a = (LORES2 as *u8)[y];
+      PF1 = a;
+      a = (LORES4 as *u8)[y];
+      PF2 = a;
+      VnoPF:
+      ScanLine++;			// One more up in the loop.
+      a = ScanLine;
+      a = a ^ 0xEC;
+    } while !zero;
+    //    goto VField if !zero;
     x = TMPSTK;			// Restore stack pointer, which is
     s = x;			// used for calls in main game loop
     ENAM0 = a;		// Clear a bunch of registers.
@@ -506,12 +522,14 @@ VnoPF:
 //ChkSel:
     a = SWCHB;		// Select button???
     a = a & 0x02;
+    
     if (!zero) {
       SelDbnce = a;		// Set flag: Sel has not been down
       // return if !zero;
       goto CS_RTS if !zero; 	// Unconditional branch 
     }
     
+//SelDown
     bit(SelDbnce);		// If Sel has been down,
 
       // return if negative;    
@@ -1236,6 +1254,9 @@ MOPIT1  ADC  Vtemp,X            ; Use saved velocity to adjust
   #[fallthrough] func COLIS() {
     x = 0x01;			// Do first for P1, DEX, P0, etc.
   }
+  
+  // This is actually a big loop
+  
   func COLnext() {
     a = CXM0P[x];
     goto COLnoHIT if !negative;	// No missile collision
@@ -1518,13 +1539,15 @@ IFskip:
     a = a << 1;
     a = a << 1;			// Do this again....
     bit(GAMVAR);
-    goto IFnoPlane if negative;	// Branch if a plane game.
-    WSYNC = a;			// This MUST be something that dropped
-	                        // through the cracks, there is NO reason!
-    BILLIARD = a;		// Store GAMVAR*4 in 84 (bit 6 = Billiard Hit)
-    a = a & 0x80;		// IF it's a tank game.
     
-IFnoPlane:
+    if (!negative) {
+      //goto IFnoPlane if negative;	// Branch if a plane game.
+      WSYNC = a;			// This MUST be something that dropped
+      // through the cracks, there is NO reason!
+      BILLIARD = a;		// Store GAMVAR*4 in 84 (bit 6 = Billiard Hit)
+      a = a & 0x80;		// IF it's a tank game.
+    }
+//IFnoPlane:
     GUIDED = a;			// set guided missile flag.
     
     /*
@@ -1559,17 +1582,20 @@ IFnoPlane:
   func LDSTEL() {
     a = GAMVAR;
     a = a & 0x87;
-    goto LDmult if negative;
-    /*
-    ;
-    ; If bit 7 is set, we are playing with one or more
-    ; planes.  If not, well, we can only have one tank,
-    ; so...
-    ;
-    */
+    if (!negative) {
+      //    goto LDmult if negative;
+      /*
+      ;
+      ; If bit 7 is set, we are playing with one or more
+      ; planes.  If not, well, we can only have one tank,
+      ; so...
+      ;
+      */
+
+      a = 0x00;
+    }
     
-    a = 0x00;
-LDmult:
+//LDmult:
     a = a << 1;
     x = a;
     a = WIDTHS[x];		// The TIA's NUSIZ registers make
@@ -1600,26 +1626,32 @@ LDmult:
     x = 0xFF;
     a = SWCHB;
     a = a & 0x08;		// Color/BW switch
-    goto LDcolor if !zero;	// Branch if set to Color
-    y = 0x10;			// Force B&W colors
-    x = 0x0f;
-    
-LDcolor:
+
+    if (zero) {
+      //    goto LDcolor if !zero;	// Branch if set to Color
+      y = 0x10;			// Force B&W colors
+      x = 0x0f;
+    }
+
+//LDcolor:
     TEMP = x;
     x = 0x03;			// We loop 3 times to get 4 values
-LDcol0:
-    a = ColorTbl[y];
-    a = a ^ TEMP1;		// Apply color-cycle if no game on
-    a = a & TEMP;		// Apply B&W massage 
-    (&COLUP0 as *u8)[x] = a;	// Color the real item.
-    (&Color0 as *u8)[x] = a;	// Color the virtual item.  This can
-    				// be changd, e.g. invisible tanks
-    (&XColor0 as *u8)[x] = a;	// Color the deep virtual item. This
-    				// is used to restore ColorX.
     
-    y++;
-    x--;
-    goto LDcol0 if !negative;
+    do {
+      //LDcol0:
+      a = ColorTbl[y];
+      a = a ^ TEMP1;		// Apply color-cycle if no game on
+      a = a & TEMP;		// Apply B&W massage 
+      (&COLUP0 as *u8)[x] = a;	// Color the real item.
+      (&Color0 as *u8)[x] = a;	// Color the virtual item.  This can
+      // be changd, e.g. invisible tanks
+      (&XColor0 as *u8)[x] = a;	// Color the deep virtual item. This
+      // is used to restore ColorX.
+
+      y++;
+      x--;
+    } while !negative;
+    //    goto LDcol0 if !negative;
   }
   
   /*
